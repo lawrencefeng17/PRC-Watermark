@@ -1,5 +1,7 @@
 # Image Watermarking with PRC
 
+[Update] The paper is accepted by ICLR 2025!
+
 [Paper](https://arxiv.org/pdf/2410.07369)
 
 PRC watermark is a method similar to Tree-Ring Watermark, where a diffusion model generates images embedded with a watermark as defined by a specified watermark key.
