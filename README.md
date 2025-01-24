@@ -4,6 +4,16 @@
 
 [Paper](https://arxiv.org/pdf/2410.07369)
 
+If you find this work useful, please consider citing our paper:
+```
+@article{gunn2025undetectable,
+  title={An undetectable watermark for generative image models},
+  author={Gunn, Sam and Zhao, Xuandong and Song, Dawn},
+  journal={arXiv preprint arXiv:2410.07369},
+  year={2024}
+}
+```
+
 PRC watermark is a method similar to Tree-Ring Watermark, where a diffusion model generates images embedded with a watermark as defined by a specified watermark key.
 
 The output of the watermark detection is binary, indicating whether the watermark is detected or not.
