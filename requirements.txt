@@ -9,8 +9,8 @@ scikit-image
 opencv-python
 pycryptodome
 accelerate
-galois
-ldpc
+galois==0.4.1
+ldpc==0.1.51
 scipy
 matplotlib
 jupyter
