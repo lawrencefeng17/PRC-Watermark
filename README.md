@@ -34,9 +34,13 @@ pip install -r requirements.txt
 You need to specify the number of test images to generate and test on. The example uses 10. The watermark key is randomly generated and saved in the `keys` folder.
 
 ```bash
+mkdir keys
 python encode.py --test_num 10
 ```
-
+```bash
+python decode.py --test_num 10
+```
+Alternatively, you can specify a different folder for testing images (e.g., attacked images):
 ```bash
 python decode.py --test_num 10 --test_path [path to test images]
 ```
@@ -45,8 +49,21 @@ You can also change the model and prompt in `model_id` and `dataset_id` respecti
 
 Additionally, you can set the targeted False Positive Rate (FPR) using the `fpr` parameter. The default value is 0.00001.
 
-
 **Note**: Need to change the huggingface cache directory in `encode.py` and `decode.py`.
+
+## Speedup
+
+To improve decoding speed, the bottleneck lies in the `decoder_inv` function within `PRC-Watermark/src/inverse_stable_diffusion.py`.
+
+You can reduce the number of steps to speed up processing. For example, modify:
+
+```python
+for i in self.progress_bar(range(100)):
+```
+to 20 steps:
+```python
+for i in self.progress_bar(range(20)):
+```
 
 ## References
 
