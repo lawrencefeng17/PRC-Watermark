@@ -8,7 +8,7 @@ from src.optim_utils import set_random_seed, transform_img, get_dataset
 def stable_diffusion_pipe(
         solver_order=1,
         model_id='stabilityai/stable-diffusion-2-1-base',
-        cache_dir='/home/xuandong/mnt/hf_models',
+        cache_dir='/home/lawrence/.cache/huggingface/hub',
 ):
     # load stable diffusion pipeline
     device = 'cuda' if torch.cuda.is_available() else 'cpu'

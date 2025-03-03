@@ -25,7 +25,7 @@ parser.add_argument('--prc_t', type=int, default=3)
 args = parser.parse_args()
 print(args)
 
-hf_cache_dir = '/home/xuandong/mnt/hf_models'
+hf_cache_dir = '/home/lawrence/.cache/huggingface/hub' 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 n = 4 * 64 * 64  # the length of a PRC codeword
 method = args.method
@@ -86,6 +86,7 @@ else:
     all_prompts = [sample['Prompt'] for sample in load_dataset(dataset_id)['test']]
 
 prompts = random.sample(all_prompts, test_num)
+breakpoint()
 
 pipe = stable_diffusion_pipe(solver_order=1, model_id=model_id, cache_dir=hf_cache_dir)
 pipe.set_progress_bar_config(disable=True)
@@ -104,7 +105,7 @@ for i in tqdm(range(test_num)):
     seed_everything(i)
     current_prompt = prompts[i]
     if nowm:
-        init_latents_np = np.random.randn(1, 4, 64, 64)
+        init_latents_np = np.random.randn(1, 4, 64, 64) # 16384
         init_latents = torch.from_numpy(init_latents_np).to(torch.float64).to(device)
     else:
         if method == 'prc':
@@ -123,6 +124,6 @@ for i in tqdm(range(test_num)):
                                 solver_order=1,
                                 pipe=pipe
                                 )
-    orig_image.save(f'{save_folder}/{i}.png')
+    orig_image.save(f'{save_folder}/{i+100}.png')
 
 print(f'Done generating {method} images')
