@@ -24,8 +24,8 @@ To run the watermark forgery attack on a single image, use the `watermark_forger
 
 ```bash
 python watermark_forgery.py \
-  --input_image path/to/watermarked/image.png \
-  --new_prompt "Your new prompt here" \
+  --input_image results/prc_num_10_steps_50_fpr_1e-05_nowm_0/original_images/0.png \
+  --new_prompt "A photo of an astronaut riding a horse on mars" \
   --exp_id prc_num_10_steps_50_fpr_1e-05_nowm_0 \
   --original_model_id stabilityai/stable-diffusion-2-1-base \
   --proxy_model_id runwayml/stable-diffusion-v1-5 \
