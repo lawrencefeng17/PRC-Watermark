@@ -86,7 +86,6 @@ else:
     all_prompts = [sample['Prompt'] for sample in load_dataset(dataset_id)['test']]
 
 prompts = random.sample(all_prompts, test_num)
-breakpoint()
 
 pipe = stable_diffusion_pipe(solver_order=1, model_id=model_id, cache_dir=hf_cache_dir)
 pipe.set_progress_bar_config(disable=True)
@@ -118,12 +117,18 @@ for i in tqdm(range(test_num)):
             init_latents, _, _ = tr_get_noise(shape, from_file=tr_key, keys_path='keys/')
         else:
             raise NotImplementedError
+    torch.save(init_latents, f'tensors/{i}_init_latents.pt')
     orig_image, _, _ = generate(prompt=current_prompt,
                                 init_latents=init_latents,
                                 num_inference_steps=args.inf_steps,
                                 solver_order=1,
                                 pipe=pipe
                                 )
-    orig_image.save(f'{save_folder}/{i+100}.png')
+    orig_image.save(f'{save_folder}/{i}.png')
+
+# save prompts
+with open(f'prompts/{exp_id}.json', 'w') as f:
+    json.dump(prompts, f)
 
 print(f'Done generating {method} images')
+breakpoint()
