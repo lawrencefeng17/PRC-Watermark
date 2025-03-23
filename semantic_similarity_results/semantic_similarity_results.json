@@ -1,0 +1,31 @@
+{
+  "original_model": "stabilityai/stable-diffusion-2-1-base",
+  "proxy_model": "runwayml/stable-diffusion-v1-5",
+  "exp_id": "prc_num_500_steps_50_fpr_1e-05_nowm_0",
+  "similarity_thresholds": [
+    0.2,
+    0.5,
+    0.8
+  ],
+  "images": [],
+  "threshold_results": {
+    "0.2": {
+      "success_rate": 0,
+      "success_count": 0,
+      "test_count": 0,
+      "avg_latent_similarity": NaN
+    },
+    "0.5": {
+      "success_rate": 0,
+      "success_count": 0,
+      "test_count": 0,
+      "avg_latent_similarity": NaN
+    },
+    "0.8": {
+      "success_rate": 0,
+      "success_count": 0,
+      "test_count": 0,
+      "avg_latent_similarity": NaN
+    }
+  }
+}

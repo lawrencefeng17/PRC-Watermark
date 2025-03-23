@@ -1,0 +1,48 @@
+{
+  "original_model": "stabilityai/stable-diffusion-2-1-base",
+  "proxy_model": "runwayml/stable-diffusion-v1-5",
+  "exp_id": "prc_num_10_steps_50_fpr_1e-05_nowm_0",
+  "images": [
+    {
+      "original_image": "results/prc_num_10_steps_50_fpr_1e-05_nowm_0/original_images/5.png",
+      "forged_image": "batch_forgery_results/5_forged.png",
+      "new_prompt": "closeup portrait shot of sigourney weaver wearing steampunk goggles in a scenic dystopian environment, intricate, elegant, highly detailed, centered, digital painting, artstation, concept art, smooth, sharp focus, illustration, artgerm, tomasz alen kopera, peter mohrbacher, donato giancola, joseph christian leyendecker, wlop, boris vallejo",
+      "original_watermark_detected": true,
+      "forged_watermark_detected": true,
+      "attack_successful": true
+    },
+    {
+      "original_image": "results/prc_num_10_steps_50_fpr_1e-05_nowm_0/original_images/9.png",
+      "forged_image": "batch_forgery_results/9_forged.png",
+      "new_prompt": "baroque oil painting japanese light novel cover full body illustration lotr anime key visual stunning action shot | young girl black military crusader maid with long flowing blonde hair | symmetrical perfect face fine detail delicate features quiet gaze | gapmoe kuudere moody lighting bokeh | trending pixiv fanbox | by greg rutkowski makoto shinkai takashi takeuchi studio ghibli",
+      "original_watermark_detected": true,
+      "forged_watermark_detected": true,
+      "attack_successful": true
+    },
+    {
+      "original_image": "results/prc_num_10_steps_50_fpr_1e-05_nowm_0/original_images/8.png",
+      "forged_image": "batch_forgery_results/8_forged.png",
+      "new_prompt": "the day that aliens met us, digital art, epic, lighting, color harmony, volumetric lighting, matte painting, chromatic aberration, shallow depth of field, epic composition, trending on artstation",
+      "original_watermark_detected": true,
+      "forged_watermark_detected": true,
+      "attack_successful": true
+    },
+    {
+      "original_image": "results/prc_num_10_steps_50_fpr_1e-05_nowm_0/original_images/4.png",
+      "forged_image": "batch_forgery_results/4_forged.png",
+      "new_prompt": "a fantasy style portrait painting of rachel lane / brie larson hybrid in the style of francois boucher oil painting unreal 5 daz. rpg portrait, extremely detailed artgerm greg rutkowski alphonse mucha",
+      "original_watermark_detected": true,
+      "forged_watermark_detected": true,
+      "attack_successful": true
+    },
+    {
+      "original_image": "results/prc_num_10_steps_50_fpr_1e-05_nowm_0/original_images/2.png",
+      "forged_image": "batch_forgery_results/2_forged.png",
+      "new_prompt": "a portrait of branko crvenkovski, deep focus, d & d, fantasy, intricate, elegant, highly detailed, digital painting, artstation, concept art, matte, sharp focus, illustration, art by artgerm and greg rutkowski and alphonse mucha",
+      "original_watermark_detected": true,
+      "forged_watermark_detected": true,
+      "attack_successful": true
+    }
+  ],
+  "success_rate": 1.0
+}
