@@ -17,9 +17,10 @@ Say $\mathsf{Model}'$ is given the binary token sequence $(t_{1}', \dots, t_\ell
 Let $((t_{1}, \dots, t_{i}), s) \leftarrow \mathsf{Dec}(t_{1}', \dots, t_\ell')$, and $\mathsf{p} = \mathsf{Model}(\text{prompt}, (t_{1}, \dots, t_{i}))$. That is, when we decode the given binary string, we get some valid tokens $t_{1}$ through $t_i$, and some extra bits (bits we are still generating) $s$.
 
 Then, to compute the probability of the next binary token being 0, we compute:
-$$
+\[
 \mathsf{p}'(0) = \sum\limits_{t \in \mathcal{T}, \mathsf{Enc}(t)[1:len(s) + 1] = s||0} \mathsf{p}(t)
-$$
+\]
+
 That is, take the SUM of (probabilities of tokens) whose encoding begins with the bits $s$ generated so far. 
 
 
