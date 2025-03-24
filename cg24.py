@@ -129,28 +129,42 @@ class BinarizedModel:
         
     def predict_binary_probs(self, original_token_probs, prefix):
         """
-        Optimized version that uses precomputed prefix mappings.
+        Optimized version that calculates the probability of the next bit being 0 or 1.
         
-        THIS LOGIC IS MESSED UP. We want to consider tokens whose encoding starts with the prefix then a zero. 
+        For bit 0: sum probabilities of tokens whose encoding starts with prefix+'0'
+        For bit 1: sum probabilities of tokens whose encoding starts with prefix+'1'
         """
-        # Get possible tokens for this prefix
-        if prefix in self.prefix_to_tokens:
-            possible_tokens = self.prefix_to_tokens[prefix]
-        else:
-            assert False
-            
-        # If no possible tokens, return equal probabilities
-        if not possible_tokens:
+        # Get tokens that could follow this prefix with a 0 or 1
+        prefix_plus_zero = (prefix, '0')
+        prefix_plus_one = (prefix, '1')
+        
+        # Get tokens that could follow this prefix with a 0
+        tokens_with_zero = self.prefix_extension.get(prefix_plus_zero, frozenset())
+        # Get tokens that could follow this prefix with a 1
+        tokens_with_one = self.prefix_extension.get(prefix_plus_one, frozenset())
+        
+        # If no possible continuations, return equal probabilities
+        if not tokens_with_zero and not tokens_with_one:
             assert False
         
+        # Calculate probability for bit '0'
+        prob_of_zero = sum(original_token_probs.get(token_id, 0) for token_id in tokens_with_zero)
         # Calculate probability for bit '1'
-        prob_of_zero = sum(original_token_probs.get(token_id, 0) for token_id in possible_tokens)
-        # consider floating point precision
-        prob_of_zero = min(prob_of_zero, 1.0)
-        prob_of_one = 1.0 - prob_of_zero
+        prob_of_one = sum(original_token_probs.get(token_id, 0) for token_id in tokens_with_one)
         
+        # Normalize to ensure they sum to 1
+        total = prob_of_zero + prob_of_one
+        if total > 0:
+            prob_of_zero /= total
+            prob_of_one /= total
+        else:
+            # If all tokens have zero probability, default to equal probabilities
+            prob_of_zero = 0.5
+            prob_of_one = 0.5
+        
+        prob_of_one = min(prob_of_one, 1.0)
         # For efficiency, return both probabilities
-        return prob_of_zero, prob_of_one
+        return 1.0 - prob_of_one, prob_of_one
 
     def sample_binary_token(self, x_i, hat_p_i):
         """
@@ -309,7 +323,7 @@ def main():
     binarized_model = BinarizedModel(model, encoding_key, tokenizer=tokenizer, encoding=encoding, decoding=decoding)
 
     # Generate text
-    output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_tokens=7)
+    output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_tokens=50)
     print(f"Output text: {output_text}")
 
 if __name__ == "__main__":
