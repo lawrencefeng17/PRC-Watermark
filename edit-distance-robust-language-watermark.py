@@ -12,11 +12,7 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 from datasets import load_dataset
 
-from src.prc import KeyGen, Encode, Decode, Detect
-import src.pseudogaussians as prc_gaussians
-from src.baseline.gs_watermark import Gaussian_Shading_chacha
-from src.baseline.treering_watermark import tr_detect, tr_get_noise
-from inversion import stable_diffusion_pipe, generate
+from src.prc import KeyGen, Encode, Decode
 
 parser = argparse.ArgumentParser('Args')
 parser.add_argument('--test_num', type=int, default=10)
