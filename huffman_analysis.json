@@ -1,0 +1,260 @@
+{
+  "total_stats": {
+    "total_bits": 4304122,
+    "zeros": 2132162,
+    "ones": 2171960,
+    "zero_ratio": 0.49537675744321374,
+    "one_ratio": 0.5046232425567863
+  },
+  "top_token_stats": {
+    "total_bits": 825,
+    "zeros": 410,
+    "ones": 415,
+    "zero_ratio": 0.49696969696969695,
+    "one_ratio": 0.503030303030303
+  },
+  "weighted_stats": {
+    "total_bits": 1709127,
+    "zeros": 819581,
+    "ones": 889546,
+    "zero_ratio": 0.47953194818173256,
+    "one_ratio": 0.5204680518182675
+  },
+  "first_bit_stats": {
+    "zeros": 3005,
+    "ones": 125251,
+    "zero_ratio": 0.023429703093812374,
+    "one_ratio": 0.9765702969061876,
+    "weighted_zeros": 77017,
+    "weighted_ones": 112165,
+    "weighted_zero_ratio": 0.4071053271452887,
+    "weighted_one_ratio": 0.5928946728547113
+  },
+  "code_length_stats": {
+    "avg_length": 33.55883545409181,
+    "min_length": 4,
+    "max_length": 35
+  },
+  "top_token_analysis": [
+    {
+      "token_id": 128000,
+      "token_text": "'<|begin_of_text|>' (ID: 128000)",
+      "frequency": 14533,
+      "code": "1100",
+      "length": 4,
+      "zeros": 2,
+      "ones": 2,
+      "zero_ratio": 0.5,
+      "one_ratio": 0.5
+    },
+    {
+      "token_id": 198,
+      "token_text": "'\n' (ID: 198)",
+      "frequency": 11283,
+      "code": "0111",
+      "length": 4,
+      "zeros": 1,
+      "ones": 3,
+      "zero_ratio": 0.25,
+      "one_ratio": 0.75
+    },
+    {
+      "token_id": 11,
+      "token_text": "',' (ID: 11)",
+      "frequency": 8728,
+      "code": "0010",
+      "length": 4,
+      "zeros": 3,
+      "ones": 1,
+      "zero_ratio": 0.75,
+      "one_ratio": 0.25
+    },
+    {
+      "token_id": 13,
+      "token_text": "'.' (ID: 13)",
+      "frequency": 4298,
+      "code": "00001",
+      "length": 5,
+      "zeros": 4,
+      "ones": 1,
+      "zero_ratio": 0.8,
+      "one_ratio": 0.2
+    },
+    {
+      "token_id": 279,
+      "token_text": "' the' (ID: 279)",
+      "frequency": 4117,
+      "code": "111111",
+      "length": 6,
+      "zeros": 0,
+      "ones": 6,
+      "zero_ratio": 0.0,
+      "one_ratio": 1.0
+    },
+    {
+      "token_id": 311,
+      "token_text": "' to' (ID: 311)",
+      "frequency": 4087,
+      "code": "111011",
+      "length": 6,
+      "zeros": 1,
+      "ones": 5,
+      "zero_ratio": 0.16666666666666666,
+      "one_ratio": 0.8333333333333334
+    },
+    {
+      "token_id": 315,
+      "token_text": "' of' (ID: 315)",
+      "frequency": 3668,
+      "code": "110110",
+      "length": 6,
+      "zeros": 2,
+      "ones": 4,
+      "zero_ratio": 0.3333333333333333,
+      "one_ratio": 0.6666666666666666
+    },
+    {
+      "token_id": 323,
+      "token_text": "' and' (ID: 323)",
+      "frequency": 3336,
+      "code": "101011",
+      "length": 6,
+      "zeros": 2,
+      "ones": 4,
+      "zero_ratio": 0.3333333333333333,
+      "one_ratio": 0.6666666666666666
+    },
+    {
+      "token_id": 1077,
+      "token_text": "' her' (ID: 1077)",
+      "frequency": 2044,
+      "code": "1111000",
+      "length": 7,
+      "zeros": 3,
+      "ones": 4,
+      "zero_ratio": 0.42857142857142855,
+      "one_ratio": 0.5714285714285714
+    },
+    {
+      "token_id": 264,
+      "token_text": "' a' (ID: 264)",
+      "frequency": 1920,
+      "code": "1110001",
+      "length": 7,
+      "zeros": 3,
+      "ones": 4,
+      "zero_ratio": 0.42857142857142855,
+      "one_ratio": 0.5714285714285714
+    },
+    {
+      "token_id": 304,
+      "token_text": "' in' (ID: 304)",
+      "frequency": 1829,
+      "code": "1101011",
+      "length": 7,
+      "zeros": 2,
+      "ones": 5,
+      "zero_ratio": 0.2857142857142857,
+      "one_ratio": 0.7142857142857143
+    },
+    {
+      "token_id": 574,
+      "token_text": "' was' (ID: 574)",
+      "frequency": 1769,
+      "code": "1011101",
+      "length": 7,
+      "zeros": 2,
+      "ones": 5,
+      "zero_ratio": 0.2857142857142857,
+      "one_ratio": 0.7142857142857143
+    },
+    {
+      "token_id": 358,
+      "token_text": "' I' (ID: 358)",
+      "frequency": 1743,
+      "code": "1011011",
+      "length": 7,
+      "zeros": 2,
+      "ones": 5,
+      "zero_ratio": 0.2857142857142857,
+      "one_ratio": 0.7142857142857143
+    },
+    {
+      "token_id": 26,
+      "token_text": "';' (ID: 26)",
+      "frequency": 1602,
+      "code": "1010001",
+      "length": 7,
+      "zeros": 4,
+      "ones": 3,
+      "zero_ratio": 0.5714285714285714,
+      "one_ratio": 0.42857142857142855
+    },
+    {
+      "token_id": 539,
+      "token_text": "' not' (ID: 539)",
+      "frequency": 1395,
+      "code": "1000000",
+      "length": 7,
+      "zeros": 6,
+      "ones": 1,
+      "zero_ratio": 0.8571428571428571,
+      "one_ratio": 0.14285714285714285
+    },
+    {
+      "token_id": 430,
+      "token_text": "' that' (ID: 430)",
+      "frequency": 1392,
+      "code": "0110110",
+      "length": 7,
+      "zeros": 3,
+      "ones": 4,
+      "zero_ratio": 0.42857142857142855,
+      "one_ratio": 0.5714285714285714
+    },
+    {
+      "token_id": 1364,
+      "token_text": "' she' (ID: 1364)",
+      "frequency": 1310,
+      "code": "0110000",
+      "length": 7,
+      "zeros": 5,
+      "ones": 2,
+      "zero_ratio": 0.7142857142857143,
+      "one_ratio": 0.2857142857142857
+    },
+    {
+      "token_id": 433,
+      "token_text": "' it' (ID: 433)",
+      "frequency": 1267,
+      "code": "0101010",
+      "length": 7,
+      "zeros": 4,
+      "ones": 3,
+      "zero_ratio": 0.5714285714285714,
+      "one_ratio": 0.42857142857142855
+    },
+    {
+      "token_id": 387,
+      "token_text": "' be' (ID: 387)",
+      "frequency": 1224,
+      "code": "0100100",
+      "length": 7,
+      "zeros": 5,
+      "ones": 2,
+      "zero_ratio": 0.7142857142857143,
+      "one_ratio": 0.2857142857142857
+    },
+    {
+      "token_id": 813,
+      "token_text": "' his' (ID: 813)",
+      "frequency": 1146,
+      "code": "0011100",
+      "length": 7,
+      "zeros": 4,
+      "ones": 3,
+      "zero_ratio": 0.5714285714285714,
+      "one_ratio": 0.42857142857142855
+    }
+  ]
+}

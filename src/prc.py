@@ -114,6 +114,20 @@ def Encode(encoding_key, message=None):
 
     return 1 - 2 * torch.tensor(payload @ generator_matrix.T + one_time_pad + error, dtype=float)
 
+def Encode_simple(encoding_key, message=None):
+    generator_matrix, one_time_pad, test_bits, g, noise_rate = encoding_key
+    n, k = generator_matrix.shape
+
+    if message is None:
+        payload = np.concatenate((test_bits, GF.Random(k - len(test_bits))))
+    else:
+        assert len(message) <= k-len(test_bits)-g, "Message is too long"
+        payload = np.concatenate((test_bits, GF.Random(g), GF(message), GF.Zeros(k-len(test_bits)-g-len(message))))
+
+    error = GF(np.random.binomial(1, noise_rate, n))
+
+    # no one-time pad in simple hamming weight deteector
+    return 1 - 2 * torch.tensor(payload @ generator_matrix.T + error, dtype=float)
 
 ### Detector
 ## Inputs:
