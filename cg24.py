@@ -14,7 +14,7 @@ import argparse
 import os
 from tqdm import tqdm
 
-from src.prc import Encode, Decode, KeyGen
+from src.prc import Encode, Encode_simple, Decode, KeyGen
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 from datasets import load_dataset
@@ -94,7 +94,8 @@ class BinarizedModel:
         self.device = next(original_model.parameters()).device
         self.encoding_key = encoding_key
         self.decoding_key = decoding_key
-        self.prc_codeword = (Encode(encoding_key) + 1) / 2 # convert to {0, 1}
+        X_pm1 = Encode_simple(encoding_key)
+        self.prc_codeword = ((1 - X_pm1) / 2).long()
 
         assert len(self.prc_codeword) == n
         self.n = n
@@ -202,7 +203,7 @@ class BinarizedModel:
             # t_i <- Ber(1 - 2(1 - x_i)(1 - hat_p_i))
             return np.random.binomial(1, 1 - 2 * (1 - x_i) * (1 - hat_p_i))
 
-    def watermarked_generate(self, prompt, num_tokens):
+    def watermarked_generate(self, prompt, num_bits):
         """
         Generates text using the watermarked, binarized model.
         Important: num_tokens is now the number of tokens in the *original* vocab.
@@ -215,50 +216,71 @@ class BinarizedModel:
 
         input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device) # Encode the prompt!
 
-        for _ in tqdm(range(num_tokens), desc="Generating tokens"):
-            with torch.no_grad():
-                outputs = self.original_model(input_ids=input_ids)
-                logits = outputs.logits[0, -1, :]  # Get logits for the last token
-                probs = torch.softmax(logits, dim=0)
-                original_token_probs = {i: probs[i].item() for i in range(len(probs))}
+        # store the hat_p_i values for debugging
+        hat_p_i_values = []
 
-            prefix = ""
-            # loop until s becomes a valid encoding, and do not stop if eos_token is generated
-            while True:
-                prob_of_zero, prob_of_one = self.predict_binary_probs(original_token_probs, prefix)
+        with tqdm(total=num_bits, desc="Generating bits") as pbar:
+            while len(binary_tokens) < num_bits:
+                with torch.no_grad():
+                    outputs = self.original_model(input_ids=input_ids)
+                    logits = outputs.logits[0, -1, :]  # Get logits for the last token
+                    probs = torch.softmax(logits, dim=0)
+                    original_token_probs = {i: probs[i].item() for i in range(len(probs))}
+
+                prefix = ""
+                # loop until s becomes a valid encoding, and do not stop if eos_token is generated
+                while True:
+                    prob_of_zero, prob_of_one = self.predict_binary_probs(original_token_probs, prefix)
+
+                    hat_p_i_values.append(prob_of_one)
+                    
+                    # Sample bit using PRC watermarking
+                    x_i = self.prc_codeword[self.prc_index].item() 
+                    next_bit = self.sample_binary_token(x_i, prob_of_one)
+                    binary_tokens.append(next_bit)
+                    self.prc_index += 1
+                    pbar.update(1)
+
+                    # if we've used all the bits in the PRC codeword, reset it
+                    if self.prc_index == len(self.prc_codeword):
+                        print("Generating new PRC codeword")
+                        self.prc_index = 0
+                        self.prc_codeword = (Encode(self.encoding_key) + 1) / 2
+
+                    prefix += str(next_bit)
+
+                    if prefix in self.decoding:
+                        decoded_token_id = self.decoding[prefix] 
+                        output_tokens.append(decoded_token_id)
+                        decoded_str = self.tokenizer.decode([decoded_token_id])
+                        input_ids = torch.cat([input_ids, torch.tensor([[decoded_token_id]]).to(self.device)], dim=-1)
+                        output_text += decoded_str
+                        break # Exit the inner loop
+
+                    if len(binary_tokens) >= num_bits:
+                        break
                 
-                # Sample bit using PRC watermarking
-                x_i = self.prc_codeword[self.prc_index].item() 
-                next_bit = self.sample_binary_token(x_i, prob_of_one)
-                binary_tokens.append(next_bit)
-                self.prc_index += 1
+                if len(binary_tokens) >= num_bits:
+                    break
 
-                # if we've used all the bits in the PRC codeword, reset it
-                if self.prc_index == len(self.prc_codeword):
-                    self.prc_index = 0
-                    self.prc_codeword = (Encode(self.encoding_key) + 1) / 2
-
-                prefix += str(next_bit)
-
-                if len(prefix) % 1000 == 0:
-                    print(f"Prefix: {len(prefix)}")
-
-                if prefix in self.decoding:
-                    decoded_token_id = self.decoding[prefix] 
-                    output_tokens.append(decoded_token_id)
-                    decoded_str = self.tokenizer.decode([decoded_token_id])
-                    input_ids = torch.cat([input_ids, torch.tensor([[decoded_token_id]]).to(self.device)], dim=-1)
-                    output_text += decoded_str
-                    break # Exit the inner loop
-
+        print(f"Generated {len(hat_p_i_values)} binary bits.")
+        # Plot histogram or print summary statistics
+        plt.hist(hat_p_i_values, bins=20, range=(0, 1))
+        plt.title("Distribution of hat_p_i values encountered")
+        plt.xlabel("P(next_bit = 1)")
+        plt.ylabel("Frequency")
+        plt.savefig(f"hat_p_i_distribution.png") # Save the plot
+        print(f"Saved hat_p_i distribution plot.")
+        print(f"Mean hat_p_i: {np.mean(hat_p_i_values):.4f}")
+        print(f"Std dev hat_p_i: {np.std(hat_p_i_values):.4f}")
+        print(f"Fraction near 0.5 (|p - 0.5| < 0.1): {np.mean(np.abs(np.array(hat_p_i_values) - 0.5) < 0.1):.4f}")
         return output_tokens, output_text
-    
+     
 def detect_hamming_binary(binarized_model, watermarked_text_binary):
     """
     Detects if the provided binary string is watermarked, using hamming distance.
     """
     if len(watermarked_text_binary) < binarized_model.n:
-        print(f"appending {binarized_model.n - len(watermarked_text_binary)} zeros")
         watermarked_text_binary = torch.cat([watermarked_text_binary, torch.zeros(binarized_model.n - len(watermarked_text_binary))])
 
     # wt(Px) < (1/2 - r^(-1/4)) * r, output 1, where P is the parity check matrix
@@ -266,12 +288,9 @@ def detect_hamming_binary(binarized_model, watermarked_text_binary):
     r = parity_check_matrix.shape[0]
     
     # compute Px
-    Px = parity_check_matrix @ watermarked_text_binary
+    Px = (parity_check_matrix @ watermarked_text_binary) % 2
     
-    # Calculate the hamming weight for values in {-1, 1}
-    # First convert from {-1, 1} to {0, 1} representation
-    Px_binary = (Px + 1) / 2
-    hamming_weight = np.sum(Px_binary)
+    hamming_weight = np.sum(Px)
     
     threshold = (1/2 - r**(-1/4)) * r
     # if below threshold, then detection
@@ -286,7 +305,6 @@ def detect_hamming_text(binarized_model, watermarked_text):
     # convert watermarked_text to binary string using encoding
     watermarked_text_binary = ''.join([binarized_model.encoding[token_id] for token_id in watermarked_text])
     watermarked_text_binary = torch.tensor([int(bit) for bit in watermarked_text_binary], dtype=float)
-    watermarked_text_binary = 2 * watermarked_text_binary - 1
 
     return detect_hamming_binary(binarized_model, watermarked_text_binary)
 
@@ -320,25 +338,6 @@ def corrupt_watermarked_text(binarized_model, watermarked_text, corruption_rate=
     
     return watermarked_text_binary
 
-def tests(binarized_model, output_tokens):
-    # compute average detection rate
-    corruption_rates = np.arange(0, 1, 0.1)
-    detection_rates = []
-    detection_rates_std = []
-    for corruption_rate in corruption_rates:
-        detection_rate = []
-        for i in range(1000):
-            corrupted_watermarked_text_binary = corrupt_watermarked_text(binarized_model, output_tokens, corruption_rate)
-            detection_result = detect_hamming_binary(binarized_model, corrupted_watermarked_text_binary)
-            detection_rate.append(detection_result)
-        detection_rates.append(np.mean(detection_rate))
-        detection_rates_std.append(np.std(detection_rate))
-    plt.plot(corruption_rates, detection_rates)
-    plt.fill_between(corruption_rates, np.array(detection_rates) - np.array(detection_rates_std), np.array(detection_rates) + np.array(detection_rates_std), alpha=0.2)
-    plt.xlabel("Corruption Rate")
-    plt.ylabel("Detection Rate")
-    plt.show()
-
 def main():
     parser = argparse.ArgumentParser('Args')
     parser.add_argument('--prompt', type=str, default='Tell me a fantastical story about a wizard.')
@@ -349,18 +348,19 @@ def main():
     parser.add_argument('--nowm', type=int, default=0)
     parser.add_argument('--fpr', type=float, default=0.00001)
     parser.add_argument('--prc_t', type=int, default=3)
+    parser.add_argument('--n', type=int, default=2**11)
     args = parser.parse_args()
     print(args)
 
     hf_cache_dir = '/home/lawrence/.cache/huggingface/hub'
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    n = 4 * 64 * 64  # the length of a PRC codeword (for stable diffusion)
     test_num = args.test_num
     model_id = args.model_id
     nowm = args.nowm
     fpr = args.fpr
     prc_t = args.prc_t
-    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_fpr_{fpr}_nowm_{nowm}'
+    n = args.n
+    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_t_{prc_t}_fpr_{fpr}_nowm_{nowm}_n_{n}'
 
     print("Loading model...")
     config = AutoConfig.from_pretrained(model_id)
@@ -393,7 +393,7 @@ def main():
     encoding_key, decoding_key = setup(vocab_size, exp_id, n, fpr, prc_t)
     print(f"PRC keys set up")
 
-    if not os.path.exists(f'encoding_{exp_id}.pkl'):
+    if not os.path.exists(f'encoding.pkl'):
         token_counts = {token_id: 0 for token_id in range(vocab_size)}
         with open("pride_and_prejudice.txt", "r", encoding="utf-8") as f:
             example_corpus = f.readlines()
@@ -404,14 +404,21 @@ def main():
 
         encoding = huffman_encode(token_counts)
         # save encoding to file
-        with open(f'encoding_{exp_id}.pkl', 'wb') as f:
+        with open(f'encoding.pkl', 'wb') as f:
             pickle.dump(encoding, f)
     else:
-        with open(f'encoding_{exp_id}.pkl', 'rb') as f:
+        with open(f'encoding.pkl', 'rb') as f:
             encoding = pickle.load(f)
     print(f"Encoding loaded")
 
     decoding = {code: token_id for token_id, code in encoding.items()}
+
+    # # TEMPORARILY TEST FIXED RANDOM ENCODING
+    # import math
+    # vocab_size = len(tokenizer) # Or from config
+    # code_length = math.ceil(math.log2(vocab_size))
+    # encoding = {i: format(i, f'0{code_length}b') for i in range(vocab_size)}
+    # decoding = {code: i for i, code in encoding.items()}
 
     # Binarize the model
     binarized_model = BinarizedModel(
@@ -424,9 +431,35 @@ def main():
         decoding=decoding)
     print(f"Binarized model loaded")
     
-    # Generate text
-    output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_tokens=100)
+    # test parity check matrix on codeword
+    P = binarized_model.decoding_key[1]
+    Px = (P @ binarized_model.prc_codeword) % 2
+    print(f"Px: {Px}")
+    
+    hamming_weight = np.sum(Px)
+    print(f"Hamming weight of codeword: {hamming_weight}")
+    r = P.shape[0]
+    threshold = (1/2 - r**(-1/4)) * r
+    print(f"Threshold: {threshold}")
+    print(f"For a random codeword, the expected hamming weight is {r/2}")
+
+    # generate watermarked text
+    if not os.path.exists(f'output_tokens_{exp_id}.pkl'):
+        output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_bits=n)
+        with open(f'output_tokens_{exp_id}.pkl', 'wb') as f:
+            pickle.dump(output_tokens, f)
+    else:
+        with open(f'output_tokens_{exp_id}.pkl', 'rb') as f:
+            output_tokens = pickle.load(f)
+            output_text = ''.join([tokenizer.decode([token_id]) for token_id in output_tokens])
+    # save output tokens
     print(f"Output text: {output_text}")
+
+    # detect watermark
+    threshold, hamming_weight, result = detect_hamming_text(binarized_model, output_tokens)
+    print(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
+
+    breakpoint()
 
 
 if __name__ == "__main__":
