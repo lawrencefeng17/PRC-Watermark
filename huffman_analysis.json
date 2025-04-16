@@ -33,7 +33,7 @@
   "code_length_stats": {
     "avg_length": 33.55883545409181,
     "min_length": 4,
-    "max_length": 35
+    "max_length": 10
   },
   "top_token_analysis": [
     {

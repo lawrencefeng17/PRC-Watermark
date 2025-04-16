@@ -38,8 +38,7 @@ def analyze_huffman_encoding_bit_distribution(encoding, token_frequencies=None, 
     """
     # Create default token frequencies if not provided
     if token_frequencies is None:
-        print("No token frequencies provided. Assuming equal frequency for all tokens.")
-        token_frequencies = {token_id: 1 for token_id in encoding.keys()}
+        assert False
     
     # Calculate overall bit distribution
     all_bits = []
@@ -171,6 +170,11 @@ def analyze_huffman_encoding_bit_distribution(encoding, token_frequencies=None, 
     position_ones = [0] * max_code_length
     position_counts = [0] * max_code_length
     
+    # Add weighted position tracking
+    weighted_position_zeros = [0] * max_code_length
+    weighted_position_ones = [0] * max_code_length
+    weighted_position_counts = [0] * max_code_length
+    
     for token_id, code in encoding.items():
         for i, bit in enumerate(code):
             position_counts[i] += 1
@@ -178,6 +182,15 @@ def analyze_huffman_encoding_bit_distribution(encoding, token_frequencies=None, 
                 position_zeros[i] += 1
             else:
                 position_ones[i] += 1
+                
+            # Add weighted counting if token frequency information is available
+            if token_frequencies and token_id in token_frequencies:
+                freq = token_frequencies[token_id]
+                weighted_position_counts[i] += freq
+                if bit == '0':
+                    weighted_position_zeros[i] += freq
+                else:
+                    weighted_position_ones[i] += freq
     
     if max_code_length > 0:
         print(f"\nBit distribution by position (up to position {min(10, max_code_length)}):")
@@ -185,6 +198,14 @@ def analyze_huffman_encoding_bit_distribution(encoding, token_frequencies=None, 
             zero_ratio = position_zeros[i] / position_counts[i] if position_counts[i] > 0 else 0
             one_ratio = position_ones[i] / position_counts[i] if position_counts[i] > 0 else 0
             print(f"  Position {i+1}: Zeros: {position_zeros[i]} ({zero_ratio:.2%}), Ones: {position_ones[i]} ({one_ratio:.2%})")
+        
+        # Print weighted position statistics
+        if token_frequencies:
+            print(f"\nFrequency-weighted bit distribution by position (up to position {min(10, max_code_length)}):")
+            for i in range(min(10, max_code_length)):
+                weighted_zero_ratio = weighted_position_zeros[i] / weighted_position_counts[i] if weighted_position_counts[i] > 0 else 0
+                weighted_one_ratio = weighted_position_ones[i] / weighted_position_counts[i] if weighted_position_counts[i] > 0 else 0
+                print(f"  Position {i+1}: Weighted Zeros: {weighted_position_zeros[i]} ({weighted_zero_ratio:.2%}), Weighted Ones: {weighted_position_ones[i]} ({weighted_one_ratio:.2%})")
     
     if plot and has_matplotlib and len(top_token_analysis) > 0:
         # Plot bit distribution by token frequency
@@ -247,6 +268,26 @@ def analyze_huffman_encoding_bit_distribution(encoding, token_frequencies=None, 
             plt.grid(True, alpha=0.3)
             plt.savefig('huffman_bit_distribution_by_position.png')
             print("Saved plot: huffman_bit_distribution_by_position.png")
+            
+            # Plot frequency-weighted bit distribution by position
+            if token_frequencies:
+                plt.figure(figsize=(12, 6))
+                weighted_zero_ratios_by_pos = [weighted_position_zeros[i-1] / weighted_position_counts[i-1] if weighted_position_counts[i-1] > 0 else 0 
+                                          for i in positions]
+                weighted_one_ratios_by_pos = [weighted_position_ones[i-1] / weighted_position_counts[i-1] if weighted_position_counts[i-1] > 0 else 0 
+                                        for i in positions]
+                
+                plt.bar([p - 0.2 for p in positions], weighted_zero_ratios_by_pos, width=0.4, label='Weighted Zeros', alpha=0.7)
+                plt.bar([p + 0.2 for p in positions], weighted_one_ratios_by_pos, width=0.4, label='Weighted Ones', alpha=0.7)
+                plt.axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='Equal distribution')
+                plt.title('Frequency-Weighted Bit Distribution by Position in Huffman Code')
+                plt.xlabel('Position in Code')
+                plt.ylabel('Weighted Ratio of Bits')
+                plt.xticks(positions)
+                plt.legend()
+                plt.grid(True, alpha=0.3)
+                plt.savefig('huffman_weighted_bit_distribution_by_position.png')
+                print("Saved plot: huffman_weighted_bit_distribution_by_position.png")
     
     return {
         'total_stats': {
@@ -289,7 +330,10 @@ def analyze_huffman_encoding_bit_distribution(encoding, token_frequencies=None, 
         'position_stats': {
             'position_zeros': position_zeros,
             'position_ones': position_ones,
-            'position_counts': position_counts
+            'position_counts': position_counts,
+            'weighted_position_zeros': weighted_position_zeros,
+            'weighted_position_ones': weighted_position_ones,
+            'weighted_position_counts': weighted_position_counts
         }
     }
 
@@ -324,7 +368,8 @@ def analyze_encoded_text_bits(encoding, text, tokenizer):
             'ones': 0,
             'zero_ratio': 0,
             'one_ratio': 0,
-            'chunk_stats': []
+            'chunk_stats': [],
+            'position_stats': {}
         }
     
     print(f"\nBit distribution in encoded text:")
@@ -352,21 +397,73 @@ def analyze_encoded_text_bits(encoding, text, tokenizer):
                 'one_ratio': chunk_ones/chunk_total
             })
     
-    # Plot chunk distribution
-    if has_matplotlib and len(chunk_stats) > 0:
-        plt.figure(figsize=(12, 6))
-        chunk_ids = [stat['chunk_id'] for stat in chunk_stats]
-        zero_ratios = [stat['zero_ratio'] for stat in chunk_stats]
+    # Analyze bit distribution by position within each token
+    max_position = 20  # Limit analysis to first 20 positions for clarity
+    position_zeros = [0] * max_position
+    position_ones = [0] * max_position
+    position_counts = [0] * max_position
+    
+    # Iterate through encoded tokens to count bits at each position
+    start_idx = 0
+    for token_id in token_ids:
+        if token_id in encoding:
+            code = encoding[token_id]
+            for i, bit in enumerate(code):
+                if i < max_position:
+                    position_counts[i] += 1
+                    if bit == '0':
+                        position_zeros[i] += 1
+                    else:
+                        position_ones[i] += 1
+    
+    # Print position stats
+    print(f"\nBit distribution by position in encoded text (up to position {min(10, max_position)}):")
+    for i in range(min(10, max_position)):
+        if position_counts[i] > 0:
+            zero_ratio = position_zeros[i] / position_counts[i]
+            one_ratio = position_ones[i] / position_counts[i]
+            print(f"  Position {i+1}: Zeros: {position_zeros[i]} ({zero_ratio:.2%}), Ones: {position_ones[i]} ({one_ratio:.2%})")
+    
+    # Plot charts
+    if has_matplotlib:
+        # Plot chunk distribution
+        if len(chunk_stats) > 0:
+            plt.figure(figsize=(12, 6))
+            chunk_ids = [stat['chunk_id'] for stat in chunk_stats]
+            zero_ratios = [stat['zero_ratio'] for stat in chunk_stats]
+            
+            plt.plot(chunk_ids, zero_ratios, marker='o', alpha=0.7)
+            plt.axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='Equal distribution')
+            plt.title('Ratio of 0s in Encoded Text by Chunks')
+            plt.xlabel('Chunk ID')
+            plt.ylabel('Ratio of 0s')
+            plt.grid(True, alpha=0.3)
+            plt.legend()
+            plt.savefig('encoded_text_bit_distribution.png')
+            print("Saved plot: encoded_text_bit_distribution.png")
         
-        plt.plot(chunk_ids, zero_ratios, marker='o', alpha=0.7)
-        plt.axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='Equal distribution')
-        plt.title('Ratio of 0s in Encoded Text by Chunks')
-        plt.xlabel('Chunk ID')
-        plt.ylabel('Ratio of 0s')
-        plt.grid(True, alpha=0.3)
-        plt.legend()
-        plt.savefig('encoded_text_bit_distribution.png')
-        print("Saved plot: encoded_text_bit_distribution.png")
+        # Plot bit distribution by position in encoded text
+        positions = list(range(1, max_position + 1))
+        valid_positions = [p for p in positions if position_counts[p-1] > 0]
+        
+        if valid_positions:
+            plt.figure(figsize=(12, 6))
+            zero_ratios_by_pos = [position_zeros[i-1] / position_counts[i-1] if position_counts[i-1] > 0 else 0 
+                              for i in positions]
+            one_ratios_by_pos = [position_ones[i-1] / position_counts[i-1] if position_counts[i-1] > 0 else 0 
+                             for i in positions]
+            
+            plt.bar([p - 0.2 for p in positions], zero_ratios_by_pos, width=0.4, label='Zeros', alpha=0.7)
+            plt.bar([p + 0.2 for p in positions], one_ratios_by_pos, width=0.4, label='Ones', alpha=0.7)
+            plt.axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='Equal distribution')
+            plt.title('Bit Distribution by Position in Encoded Text')
+            plt.xlabel('Position in Code')
+            plt.ylabel('Ratio of Bits')
+            plt.xticks(positions)
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            plt.savefig('encoded_text_bit_distribution_by_position.png')
+            print("Saved plot: encoded_text_bit_distribution_by_position.png")
     
     return {
         'total_bits': total,
@@ -374,7 +471,12 @@ def analyze_encoded_text_bits(encoding, text, tokenizer):
         'ones': ones,
         'zero_ratio': zeros/total,
         'one_ratio': ones/total,
-        'chunk_stats': chunk_stats
+        'chunk_stats': chunk_stats,
+        'position_stats': {
+            'position_zeros': position_zeros[:max_position],
+            'position_ones': position_ones[:max_position],
+            'position_counts': position_counts[:max_position]
+        }
     }
 
 def main():
