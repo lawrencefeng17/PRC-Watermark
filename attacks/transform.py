@@ -13,6 +13,7 @@ parser.add_argument('-b', '--blur', action='store_true', help='Apply Gaussian bl
 parser.add_argument('-s', '--sigma', type=float, default=2.0, help='Sigma/radius for Gaussian blur (higher = more blur)')
 parser.add_argument('-n', '--noise', action='store_true', help='Add random Gaussian noise to the image')
 parser.add_argument('--noise_level', type=float, default=10.0, help='Standard deviation of the Gaussian noise (higher = more noise)')
+parser.add_argument('-o', '--output_dir', type=str, default='transformed', help='Output directory')
 args = parser.parse_args()
 
 image = Image.open(args.file)
@@ -144,7 +145,7 @@ if __name__ == "__main__":
         output_prefix = "centered"
     
     # Save the result with a new filename
-    output_filename = f"{dir}/{output_prefix}_{Path(args.file).name}"
+    output_filename = f"{args.output_dir}/{output_prefix}_{Path(args.file).name}"
     result_image.save(output_filename)
     print(f"Image saved as {output_filename}")
 
