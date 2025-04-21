@@ -16,6 +16,9 @@ import os
 from tqdm import tqdm
 
 from src.prc import Encode, Encode_simple, Decode, KeyGen
+from huffman import huffman_encode, huffman_decode, build_huffman_tree, generate_huffman_codes
+
+from binarized import BinarizedModel
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 from datasets import load_dataset
@@ -35,297 +38,109 @@ def setup(exp_id, n, message_length, fpr, prc_t):
         print(f'Loaded PRC keys from file keys/{exp_id}.pkl')
     return encoding_key, decoding_key
 
-# --- Huffman Encoding ---
-def build_huffman_tree(frequencies):
-    #using a dictionary instead of a heap
-    nodes = {symbol: {"freq": freq, "left": None, "right": None, "symbol": symbol} for symbol, freq in frequencies.items()}
-    while len(nodes) > 1:
-        #find two least frequent nodes
-        left_symbol, right_symbol = sorted(nodes, key=lambda symbol: nodes[symbol]["freq"])[:2]
-        left_node = nodes.pop(left_symbol)
-        right_node = nodes.pop(right_symbol)
-        new_node = {"freq": left_node["freq"] + right_node["freq"], "left": left_node, "right": right_node}
-        nodes[f"{left_symbol}, {right_symbol}"] = new_node
-
-    [(root_symbol, root_node)] = nodes.items()
-    return root_node
-
-def generate_huffman_codes(tree):
-    codes = {}
-    def traverse(node, current_code=""):
-        if node["left"] is None and node["right"] is None:
-            # Store the code for the symbol, not the frequency
-            codes[node["symbol"]] = current_code
-            return
-        traverse(node["left"], current_code + "0")
-        traverse(node["right"], current_code + "1")
-    traverse(tree)
-    return codes
-
-def huffman_encode(frequencies):
-  tree = build_huffman_tree(frequencies)
-  codes = generate_huffman_codes(tree)
-  encoding = {token: codes[token] for token, freq in frequencies.items()}
-  return encoding
-
-def huffman_decode(encoding, encoded_string):
-    decoding = {code: symbol for symbol, code in encoding.items()} # This line was correct
-    decoded_sequence = []
-    current_code = ""
-    for bit in encoded_string:
-        current_code += bit
-        if current_code in decoding:
-            decoded_sequence.append(decoding[current_code])
-            current_code = ""
-    return decoded_sequence
-
-class BinarizedModel:
-    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0):
-        """
-        Args:
-            original_model: The original (non-binary) language model.
-            encoding_key: The key for the PRC encoding.
-            tokenizer: The tokenizer for the model.
-            frequencies: A dictionary mapping original tokens to frequencies.
-            encoding:  A dictionary mapping original tokens to binary strings (prefix-free).
-            decoding: A dictionary mapping binary strings to original tokens.
-            temperature: The temperature for the model.
-        """
-        self.original_model = original_model
-        self.tokenizer = tokenizer
-        self.device = next(original_model.parameters()).device
-        self.encoding_key = encoding_key
-        self.decoding_key = decoding_key
-        X_pm1 = Encode_simple(encoding_key)
-        self.prc_codeword = ((1 - X_pm1) / 2).long()
-        self.temperature = temperature
-
-        assert len(self.prc_codeword) == n
-        self.n = n
-
-        self.prc_index = 0
-
-        assert frequencies is not None or (encoding is not None and decoding is not None)
-
-        if frequencies is not None:
-            self.generate_huffman_encoding(frequencies)
-        else:
-            self.encoding = encoding
-            self.decoding = decoding  # Corrected: This should be the *decoding* dict
-            
-        # Precompute prefix mappings for optimization
-        self._precompute_prefix_mappings()
-
-    def _precompute_prefix_mappings(self):
-        """
-        Precompute mappings from prefixes to possible tokens for faster lookup.
-        This builds a dictionary mapping each possible prefix to the set of tokens
-        that could follow it.
-        """
-        # Initialize prefix-to-tokens mapping
-        self.prefix_to_tokens = {}
+def detect_hamming_text_per_token(binarized_model, watermarked_text):
+    """
+    Detects if the provided text is watermarked by taking the majority bit from each token's encoding.
+    
+    Args:
+        binarized_model: The binarized model used for generation
+        watermarked_text: List of token IDs to check for watermark
         
-        # For each token and its binary code
-        for token_id, code in self.encoding.items():
-            # Add all prefixes of this code to the mapping
-            for i in range(len(code) + 1):
-                prefix = code[:i]
-                if prefix not in self.prefix_to_tokens:
-                    self.prefix_to_tokens[prefix] = set()
-                self.prefix_to_tokens[prefix].add(token_id)
-                
-        # Convert sets to frozen sets for efficiency
-        self.prefix_to_tokens = {prefix: frozenset(tokens) for prefix, tokens in self.prefix_to_tokens.items()}
+    Returns:
+        threshold: Detection threshold
+        hamming_weight: Hamming weight of the parity check result
+        result: Boolean indicating whether watermark is detected
+    """
+    # Create a list to hold the reconstructed PRC bits (one per token)
+    reconstructed_prc_bits = []
+    
+    # Process each token in the watermarked text
+    for token_id in watermarked_text:
+        # Get the binary encoding for this token
+        binary_encoding = binarized_model.encoding[token_id]
         
-        # Create mapping from prefix + bit to new possible tokens
-        self.prefix_extension = {}
-        for prefix in self.prefix_to_tokens:
-            self.prefix_extension[(prefix, '0')] = frozenset(
-                token_id for token_id in self.prefix_to_tokens[prefix]
-                if len(self.encoding[token_id]) > len(prefix) and self.encoding[token_id][len(prefix):len(prefix)+1] == '0'
-            )
-            self.prefix_extension[(prefix, '1')] = frozenset(
-                token_id for token_id in self.prefix_to_tokens[prefix]
-                if len(self.encoding[token_id]) > len(prefix) and self.encoding[token_id][len(prefix):len(prefix)+1] == '1'
-            )
-
-    def generate_huffman_encoding(self, frequencies):
-        self.encoding = huffman_encode(frequencies)
-        self.decoding = {code: token_id for token_id, code in self.encoding.items()}
+        # Convert to a list of integers (0 or 1)
+        bits = [int(bit) for bit in binary_encoding]
         
-    def predict_binary_probs(self, original_token_probs, prefix):
-        """
-        Optimized version that calculates the probability of the next bit being 0 or 1.
+        # If there are any bits in the encoding
+        if bits:
+            # Take the majority vote among the bits
+            majority_bit = 1 if sum(bits) > len(bits) / 2 else 0
+            reconstructed_prc_bits.append(majority_bit)
+    
+    # Convert to tensor format
+    reconstructed_prc_bits = torch.tensor(reconstructed_prc_bits, dtype=float)
+    
+    # Ensure we have enough bits - pad with zeros if needed
+    if len(reconstructed_prc_bits) < binarized_model.n:
+        reconstructed_prc_bits = torch.cat([
+            reconstructed_prc_bits, 
+            torch.zeros(binarized_model.n - len(reconstructed_prc_bits))
+        ])
+    # If we have too many bits, truncate
+    elif len(reconstructed_prc_bits) > binarized_model.n:
+        print(f"Truncating {len(reconstructed_prc_bits)} bits to {binarized_model.n} bits")
+        reconstructed_prc_bits = reconstructed_prc_bits[:binarized_model.n]
         
-        For bit 0: sum probabilities of tokens whose encoding starts with prefix+'0'
-        For bit 1: sum probabilities of tokens whose encoding starts with prefix+'1'
-        """
-        # Get tokens that could follow this prefix with a 0 or 1
-        prefix_plus_zero = (prefix, '0')
-        prefix_plus_one = (prefix, '1')
+    # Apply parity check matrix to get detection result
+    parity_check_matrix = binarized_model.decoding_key[1]
+    r = parity_check_matrix.shape[0]
+    
+    # compute Px
+    Px = (parity_check_matrix @ reconstructed_prc_bits) % 2
+    
+    hamming_weight = np.sum(Px)
+    
+    threshold = (1/2 - r**(-1/4)) * r
+    # if below threshold, then detection
+    result = hamming_weight < threshold
+    
+    return threshold, hamming_weight, result
+
+def detect_hamming_text_per_token_with_map(binarized_model, token_to_prc_bit):
+    """
+    Detects watermark using the stored token to PRC bit mapping.
+    This is a more direct detection method when we have access to the original mapping.
+    
+    Args:
+        binarized_model: The binarized model used for generation
+        token_to_prc_bit: Dictionary mapping token indices to PRC bits used for generation
         
-        # Get tokens that could follow this prefix with a 0
-        tokens_with_zero = self.prefix_extension.get(prefix_plus_zero, frozenset())
-        # Get tokens that could follow this prefix with a 1
-        tokens_with_one = self.prefix_extension.get(prefix_plus_one, frozenset())
+    Returns:
+        threshold: Detection threshold
+        hamming_weight: Hamming weight of the parity check result
+        result: Boolean indicating whether watermark is detected
+    """
+    # Create tensor from the stored PRC bits
+    reconstructed_prc_bits = torch.tensor(
+        [bit for _, bit in sorted(token_to_prc_bit.items())], 
+        dtype=float
+    )
+    
+    # Ensure we have enough bits - pad with zeros if needed
+    if len(reconstructed_prc_bits) < binarized_model.n:
+        reconstructed_prc_bits = torch.cat([
+            reconstructed_prc_bits, 
+            torch.zeros(binarized_model.n - len(reconstructed_prc_bits))
+        ])
+    # If we have too many bits, truncate
+    elif len(reconstructed_prc_bits) > binarized_model.n:
+        reconstructed_prc_bits = reconstructed_prc_bits[:binarized_model.n]
         
-        # If no possible continuations, return equal probabilities
-        if not tokens_with_zero and not tokens_with_one:
-            assert False
-        
-        # Calculate probability for bit '0'
-        prob_of_zero = sum(original_token_probs.get(token_id, 0) for token_id in tokens_with_zero)
-        # Calculate probability for bit '1'
-        prob_of_one = sum(original_token_probs.get(token_id, 0) for token_id in tokens_with_one)
-        
-        # Normalize to ensure they sum to 1
-        total = prob_of_zero + prob_of_one
-        if total > 0:
-            prob_of_zero /= total
-            prob_of_one /= total
-        else:
-            # If all tokens have zero probability, default to equal probabilities
-            prob_of_zero = 0.5
-            prob_of_one = 0.5
-        
-        prob_of_one = min(prob_of_one, 1.0)
-        # For efficiency, return both probabilities
-        return 1.0 - prob_of_one, prob_of_one
-
-    def sample_binary_token(self, x_i, hat_p_i):
-        """
-        Samples a binary token from the biased probabilities.
-
-        x_i is the current index in the PRC codeword.
-        hat_p_i is the E[p] which specifies the distribution over the next binary token.
-        """
-        if hat_p_i <= 0.5:
-            # t_i <- Ber(2x_i * hat_p_i)
-            return np.random.binomial(1, 2 * x_i * hat_p_i)
-        else:
-            # t_i <- Ber(1 - 2(1 - x_i)(1 - hat_p_i))
-            return np.random.binomial(1, 1 - 2 * (1 - x_i) * (1 - hat_p_i))
-
-    def watermarked_generate(self, prompt, num_bits, debug=True):
-        """
-        Generates text using the watermarked, binarized model with KV-caching for improved efficiency.
-        
-        Args:
-            prompt: The initial prompt for generation
-            num_bits: The number of binary bits to generate
-            debug: Whether to generate debug plots and statistics (default True for backward compatibility)
-        """
-        binary_tokens = []
-        output_tokens = []
-        output_text = ""
-
-        # Encode the prompt and prepare for generation
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
-
-        # Store the hat_p_i values for debugging
-        hat_p_i_values = [] if debug else None
-        entropies = [] if debug else None
-
-        # Initial forward pass to get the KV cache for the prompt
-        with torch.no_grad():
-            # Get the initial output and KV cache
-            outputs = self.original_model(input_ids=input_ids, use_cache=True)
-            past_key_values = outputs.past_key_values
-            logits = outputs.logits[0, -1, :]  # Get logits for the last token
-            probs = torch.softmax(logits / self.temperature, dim=0)
-            original_token_probs = {i: probs[i].item() for i in range(len(probs))}
-            if debug:
-                entropy = -torch.sum(probs * torch.log2(probs))
-                entropies.append(entropy.cpu().item())
-
-        with tqdm(total=num_bits, desc="Generating bits", disable=not debug) as pbar:
-            while len(binary_tokens) < num_bits:
-                prefix = ""
-                # loop until s becomes a valid encoding, and do not stop if eos_token is generated
-                while True:
-                    prob_of_zero, prob_of_one = self.predict_binary_probs(original_token_probs, prefix)
-
-                    if debug:
-                        hat_p_i_values.append(prob_of_one)
-
-                    # Sample bit using PRC watermarking
-                    x_i = self.prc_codeword[self.prc_index].item() 
-                    next_bit = self.sample_binary_token(x_i, prob_of_one)
-                    binary_tokens.append(next_bit)
-                    self.prc_index += 1
-
-                    if debug:
-                        pbar.update(1)
-
-                    # if we've used all the bits in the PRC codeword, reset it
-                    if self.prc_index == len(self.prc_codeword):
-                        if debug:
-                            print("Generating new PRC codeword")
-                        self.prc_index = 0
-                        self.prc_codeword = (Encode(self.encoding_key) + 1) / 2
-
-                    prefix += str(next_bit)
-
-                    if prefix in self.decoding:
-                        decoded_token_id = self.decoding[prefix] 
-                        output_tokens.append(decoded_token_id)
-                        decoded_str = self.tokenizer.decode([decoded_token_id])
-                        output_text += decoded_str
-                        
-                        # Create a tensor with just the new token for the forward pass
-                        next_token_tensor = torch.tensor([[decoded_token_id]], device=self.device)
-                        
-                        # Forward pass with KV cache
-                        with torch.no_grad():
-                            outputs = self.original_model(
-                                input_ids=next_token_tensor,
-                                past_key_values=past_key_values,
-                                use_cache=True
-                            )
-                            # Update KV cache for next iteration
-                            past_key_values = outputs.past_key_values
-                            
-                            # Get logits for the next token prediction
-                            logits = outputs.logits[0, -1, :]
-                            probs = torch.softmax(logits, dim=0)
-                            original_token_probs = {i: probs[i].item() for i in range(len(probs))}
-                            if debug:   
-                                entropy = -torch.sum(probs * torch.log2(probs))
-                                entropies.append(entropy.cpu().item())
-                            
-                        break # Exit the inner loop
-
-                    if len(binary_tokens) >= num_bits:
-                        break
-                
-                if len(binary_tokens) >= num_bits:
-                    break
-
-        if debug:
-            print(f"Generated {len(hat_p_i_values)} binary bits.")
-            # Plot histogram or print summary statistics
-            plt.figure(figsize=(8, 6))  # Create a new figure for the first plot
-            plt.hist(hat_p_i_values, bins=20, range=(0, 1))
-            plt.title("Distribution of hat_p_i values encountered")
-            plt.xlabel("P(next_bit = 1)")
-            plt.ylabel("Frequency")
-            plt.savefig(f"hat_p_i_distribution.png") # Save the plot
-            print(f"Saved hat_p_i distribution plot.")
-            print(f"Mean hat_p_i: {np.mean(hat_p_i_values):.4f}")
-            print(f"Std dev hat_p_i: {np.std(hat_p_i_values):.4f}")
-            print(f"Fraction near 0.5 (|p - 0.5| < 0.1): {np.mean(np.abs(np.array(hat_p_i_values) - 0.5) < 0.1):.4f}")
-            plt.close()  # Close the first plot
-
-            # Create a new figure for the entropy plot
-            plt.figure(figsize=(8, 6))
-            plt.hist(entropies, bins=20)
-            plt.title(f"Entropy dist, mean: {np.mean(entropies):.4f}, std dev: {np.std(entropies):.4f}")
-            plt.xlabel("Entropy")
-            plt.ylabel("Frequency")
-            plt.savefig(f"entropy_distribution.png") # Save the plot
-            plt.close()  # Close the second plot
-
-        return output_tokens, output_text
+    # Apply parity check matrix to get detection result
+    parity_check_matrix = binarized_model.decoding_key[1]
+    r = parity_check_matrix.shape[0]
+    
+    # compute Px
+    Px = (parity_check_matrix @ reconstructed_prc_bits) % 2
+    
+    hamming_weight = np.sum(Px)
+    
+    threshold = (1/2 - r**(-1/4)) * r
+    # if below threshold, then detection
+    result = hamming_weight < threshold
+    
+    return threshold, hamming_weight, result
      
 def detect_hamming_binary(binarized_model, watermarked_text_binary):
     """
