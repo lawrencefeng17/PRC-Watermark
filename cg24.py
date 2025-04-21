@@ -7,6 +7,7 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 
+import math
 import pickle
 import json
 from collections import defaultdict
@@ -20,9 +21,9 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_se
 from datasets import load_dataset
 
 # --- PRC Key Generation ---
-def setup(vocab_size, exp_id, n, fpr, prc_t):
+def setup(exp_id, n, message_length, fpr, prc_t):
     if not os.path.exists(f'keys/{exp_id}.pkl'):  # Generate watermark key for the first time and save it to a file
-        (encoding_key_ori, decoding_key_ori) = KeyGen(n, false_positive_rate=fpr, t=prc_t)  # Sample PRC keys
+        (encoding_key_ori, decoding_key_ori) = KeyGen(n, message_length, false_positive_rate=fpr, t=prc_t)  # Sample PRC keys
         with open(f'keys/{exp_id}.pkl', 'wb') as f:  # Save the keys to a file
             pickle.dump((encoding_key_ori, decoding_key_ori), f)
         with open(f'keys/{exp_id}.pkl', 'rb') as f:  # Load the keys from a file
@@ -79,7 +80,7 @@ def huffman_decode(encoding, encoded_string):
     return decoded_sequence
 
 class BinarizedModel:
-    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None):
+    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0):
         """
         Args:
             original_model: The original (non-binary) language model.
@@ -88,6 +89,7 @@ class BinarizedModel:
             frequencies: A dictionary mapping original tokens to frequencies.
             encoding:  A dictionary mapping original tokens to binary strings (prefix-free).
             decoding: A dictionary mapping binary strings to original tokens.
+            temperature: The temperature for the model.
         """
         self.original_model = original_model
         self.tokenizer = tokenizer
@@ -96,6 +98,7 @@ class BinarizedModel:
         self.decoding_key = decoding_key
         X_pm1 = Encode_simple(encoding_key)
         self.prc_codeword = ((1 - X_pm1) / 2).long()
+        self.temperature = temperature
 
         assert len(self.prc_codeword) == n
         self.n = n
@@ -229,11 +232,11 @@ class BinarizedModel:
             outputs = self.original_model(input_ids=input_ids, use_cache=True)
             past_key_values = outputs.past_key_values
             logits = outputs.logits[0, -1, :]  # Get logits for the last token
-            probs = torch.softmax(logits, dim=0)
+            probs = torch.softmax(logits / self.temperature, dim=0)
             original_token_probs = {i: probs[i].item() for i in range(len(probs))}
             if debug:
                 entropy = -torch.sum(probs * torch.log2(probs))
-                entropies.append(entropy)
+                entropies.append(entropy.cpu().item())
 
         with tqdm(total=num_bits, desc="Generating bits", disable=not debug) as pbar:
             while len(binary_tokens) < num_bits:
@@ -288,7 +291,7 @@ class BinarizedModel:
                             original_token_probs = {i: probs[i].item() for i in range(len(probs))}
                             if debug:   
                                 entropy = -torch.sum(probs * torch.log2(probs))
-                                entropies.append(entropy)
+                                entropies.append(entropy.cpu().item())
                             
                         break # Exit the inner loop
 
@@ -301,6 +304,7 @@ class BinarizedModel:
         if debug:
             print(f"Generated {len(hat_p_i_values)} binary bits.")
             # Plot histogram or print summary statistics
+            plt.figure(figsize=(8, 6))  # Create a new figure for the first plot
             plt.hist(hat_p_i_values, bins=20, range=(0, 1))
             plt.title("Distribution of hat_p_i values encountered")
             plt.xlabel("P(next_bit = 1)")
@@ -310,7 +314,17 @@ class BinarizedModel:
             print(f"Mean hat_p_i: {np.mean(hat_p_i_values):.4f}")
             print(f"Std dev hat_p_i: {np.std(hat_p_i_values):.4f}")
             print(f"Fraction near 0.5 (|p - 0.5| < 0.1): {np.mean(np.abs(np.array(hat_p_i_values) - 0.5) < 0.1):.4f}")
-            
+            plt.close()  # Close the first plot
+
+            # Create a new figure for the entropy plot
+            plt.figure(figsize=(8, 6))
+            plt.hist(entropies, bins=20)
+            plt.title(f"Entropy dist, mean: {np.mean(entropies):.4f}, std dev: {np.std(entropies):.4f}")
+            plt.xlabel("Entropy")
+            plt.ylabel("Frequency")
+            plt.savefig(f"entropy_distribution.png") # Save the plot
+            plt.close()  # Close the second plot
+
         return output_tokens, output_text
      
 def detect_hamming_binary(binarized_model, watermarked_text_binary):
@@ -379,14 +393,17 @@ def main():
     parser = argparse.ArgumentParser('Args')
     parser.add_argument('--prompt', type=str, default='Tell me a fantastical story about a wizard.')
     parser.add_argument('--test_num', type=int, default=10)
-    parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B-Instruct')
+    parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B')
     # parser.add_argument('--dataset_id', type=str, default='databricks/databricks-dolly-15k')
     parser.add_argument('--inf_steps', type=int, default=50)
     parser.add_argument('--nowm', type=int, default=0)
     parser.add_argument('--fpr', type=float, default=0.00001)
     parser.add_argument('--prc_t', type=int, default=3)
     parser.add_argument('--n', type=int, default=2**11)
-    parser.add_argument('--debug', type=bool, default=True)
+    parser.add_argument('--debug', action='store_true')
+    parser.add_argument('--temperature', type=float, default=0.7)
+    parser.add_argument('--message_length', type=int, default=0)    
+    parser.add_argument('--new', action='store_true')
     args = parser.parse_args()
     print(args)
 
@@ -399,7 +416,9 @@ def main():
     prc_t = args.prc_t
     n = args.n
     debug = args.debug
-    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_t_{prc_t}_fpr_{fpr}_nowm_{nowm}_n_{n}'
+    temperature = args.temperature
+    message_length = args.message_length
+    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_t_{prc_t}_fpr_{fpr}_nowm_{nowm}_n_{n}_temperature_{temperature}_message_length_{message_length}'
 
     print("Loading model...")
     config = AutoConfig.from_pretrained(model_id)
@@ -429,35 +448,50 @@ def main():
 
     # Get the encoding key
     print(f"Setting up PRC keys for {exp_id}")
-    encoding_key, decoding_key = setup(vocab_size, exp_id, n, fpr, prc_t)
+    encoding_key, decoding_key = setup(exp_id, n, message_length, fpr, prc_t)
     print(f"PRC keys set up")
 
-    if not os.path.exists(f'encoding.pkl'):
-        token_counts = {token_id: 0 for token_id in range(vocab_size)}
-        with open("pride_and_prejudice.txt", "r", encoding="utf-8") as f:
-            example_corpus = f.readlines()
-        for sentence in example_corpus:
-            input_ids = tokenizer.encode(sentence)
-            for token_id in input_ids:
-                token_counts[token_id] += 1
+    if not debug:
+        if not os.path.exists(f'encoding.pkl'):
+            token_counts = {token_id: 0 for token_id in range(vocab_size)}
+            with open("pride_and_prejudice.txt", "r", encoding="utf-8") as f:
+                example_corpus = f.readlines()
+            for sentence in example_corpus:
+                input_ids = tokenizer.encode(sentence)
+                for token_id in input_ids:
+                    token_counts[token_id] += 1
 
-        encoding = huffman_encode(token_counts)
-        # save encoding to file
-        with open(f'encoding.pkl', 'wb') as f:
-            pickle.dump(encoding, f)
+            encoding = huffman_encode(token_counts)
+            # save encoding to file
+            with open(f'encoding.pkl', 'wb') as f:
+                pickle.dump(encoding, f)
+        else:
+            with open(f'encoding.pkl', 'rb') as f:
+                encoding = pickle.load(f)
+        print(f"Encoding loaded")
+
+        decoding = {code: token_id for token_id, code in encoding.items()}
     else:
-        with open(f'encoding.pkl', 'rb') as f:
-            encoding = pickle.load(f)
-    print(f"Encoding loaded")
-
-    decoding = {code: token_id for token_id, code in encoding.items()}
-
-    # TEMPORARILY TEST FIXED RANDOM ENCODING
-    import math
-    vocab_size = len(tokenizer) # Or from config
-    code_length = math.ceil(math.log2(vocab_size))
-    encoding = {i: format(i, f'0{code_length}b') for i in range(vocab_size)}
-    decoding = {code: i for i, code in encoding.items()}
+        # Generate truly random unique encodings for each token
+        print("Generating random encoding")
+        vocab_size = len(tokenizer)  # Or from config
+        code_length = math.ceil(math.log2(vocab_size)) + 3  # Add a few extra bits to reduce collisions
+        
+        # Generate unique random codes for each token
+        encoding = {}
+        used_codes = set()
+        
+        for i in range(vocab_size):
+            # Keep generating random codes until we find a unique one
+            while True:
+                # Generate a random binary code of the specified length
+                random_code = ''.join(str(np.random.randint(0, 2)) for _ in range(code_length))
+                if random_code not in used_codes:
+                    encoding[i] = random_code
+                    used_codes.add(random_code)
+                    break
+        
+        decoding = {code: i for i, code in encoding.items()}
 
     # Binarize the model
     binarized_model = BinarizedModel(
@@ -467,7 +501,8 @@ def main():
         n=n,
         tokenizer=tokenizer,
         encoding=encoding,
-        decoding=decoding)
+        decoding=decoding,
+        temperature=temperature)
     print(f"Binarized model loaded")
     
     # test parity check matrix on codeword
@@ -483,7 +518,7 @@ def main():
     print(f"For a random codeword, the expected hamming weight is {r/2}")
 
     # generate watermarked text
-    if not os.path.exists(f'output_tokens_{exp_id}.pkl'):
+    if not os.path.exists(f'output_tokens_{exp_id}.pkl') or args.new:
         output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_bits=n, debug=debug)
         with open(f'output_tokens_{exp_id}.pkl', 'wb') as f:
             pickle.dump(output_tokens, f)

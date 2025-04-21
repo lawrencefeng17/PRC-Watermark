@@ -15,6 +15,14 @@ from PIL import Image
 from tqdm import tqdm
 from pathlib import Path
 import matplotlib.pyplot as plt
+import sys
+
+# Add the project root directory to Python path so 'src' can be found
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)  # Go up one level to the project root
+if project_root not in sys.path:
+    sys.path.append(project_root)
+    print(f"Added {project_root} to Python path")
 
 from src.prc import Detect, Decode
 import src.pseudogaussians as prc_gaussians
