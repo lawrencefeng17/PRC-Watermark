@@ -22,4 +22,15 @@ $$\mathsf{p}'(0) = \sum\limits_{t \in \mathcal{T}, \mathsf{Enc}(t)[1:len(s) + 1]
 
 That is, take the SUM of (probabilities of tokens) whose encoding begins with the bits $s$ generated so far. 
 
+## Text Watermarking Using CG24
 
+To run the text watermarking procedure, use the following command:
+
+```
+python cg24.py --n 2048 --prc_t 3 --temperature 1 --debug --new
+```
+
+This will watermark the text with a PRC code of length 2048. The parity check matrix is t-sparse, given by prc_t. The temperature is the temperature of the LLM. 
+
+Debug will enable the generation of graphs and other statistics. New will force the generation of a new piece of text (watermarked text can be saved and reused).
+```

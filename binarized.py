@@ -15,7 +15,7 @@ import argparse
 import os
 from tqdm import tqdm
 
-from src.prc import Encode, Encode_simple, Decode, KeyGen
+from src.prc import Encode, Encode_No_OTP, Decode, KeyGen
 
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_seed
 from datasets import load_dataset
@@ -37,7 +37,7 @@ class BinarizedModel:
         self.device = next(original_model.parameters()).device
         self.encoding_key = encoding_key
         self.decoding_key = decoding_key
-        X_pm1 = Encode_simple(encoding_key)
+        X_pm1 = Encode(encoding_key)
         self.prc_codeword = ((1 - X_pm1) / 2).long()
         self.temperature = temperature
 
@@ -167,6 +167,9 @@ class BinarizedModel:
         hat_p_i_values = [] if debug else None
         entropies = [] if debug else None
 
+        if debug:
+            rejection_count = 0
+
         # Initial forward pass to get the KV cache for the prompt
         with torch.no_grad():
             # Get the initial output and KV cache
@@ -192,6 +195,9 @@ class BinarizedModel:
                     # Sample bit using PRC watermarking
                     x_i = self.prc_codeword[self.prc_index].item() 
                     next_bit = self.sample_binary_token(x_i, prob_of_one)
+                    if next_bit != x_i:
+                        rejection_count += 1
+
                     binary_tokens.append(next_bit)
                     self.prc_index += 1
 
@@ -266,145 +272,12 @@ class BinarizedModel:
             plt.savefig(f"entropy_distribution.png") # Save the plot
             plt.close()  # Close the second plot
 
+            print(f"Rejection count: {rejection_count}")
+            print(f"Rejection rate: {rejection_count / len(binary_tokens)}")
+
         return output_tokens, output_text
 
     def watermarked_generate_by_token(self, prompt, num_tokens, debug=True):
         """
-        Generates text using the watermarked, binarized model with one PRC bit per token.
-        
-        Args:
-            prompt: The initial prompt for generation
-            num_tokens: The number of tokens to generate
-            debug: Whether to generate debug plots and statistics (default True for backward compatibility)
+        Generates text by hashing the vocabulary into two buckets, then samplign from the bucket indicated by the prc-bit.
         """
-        binary_tokens = []
-        output_tokens = []
-        output_text = ""
-        token_to_prc_bit = {}  # Maps token index to the PRC bit used for that token
-        
-        # Encode the prompt and prepare for generation
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
-
-        # Store the hat_p_i values for debugging
-        hat_p_i_values = [] if debug else None
-        entropies = [] if debug else None
-
-        # Initial forward pass to get the KV cache for the prompt
-        with torch.no_grad():
-            # Get the initial output and KV cache
-            outputs = self.original_model(input_ids=input_ids, use_cache=True)
-            past_key_values = outputs.past_key_values
-            logits = outputs.logits[0, -1, :]  # Get logits for the last token
-            probs = torch.softmax(logits / self.temperature, dim=0)
-            original_token_probs = {i: probs[i].item() for i in range(len(probs))}
-            if debug:
-                entropy = -torch.sum(probs * torch.log2(probs))
-                entropies.append(entropy.cpu().item())
-
-        with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
-            token_count = 0
-            while token_count < num_tokens:
-                prefix = ""
-                token_bits = []  # Store bits used for this token
-                
-                # Get a PRC bit for this token - we'll reuse it for all binary decisions
-                # within this token
-                current_x_i = self.prc_codeword[self.prc_index].item()
-                
-                # Store which PRC bit was used for this token
-                token_to_prc_bit[token_count] = current_x_i
-                
-                # loop until s becomes a valid encoding, and do not stop if eos_token is generated
-                while True:
-                    prob_of_zero, prob_of_one = self.predict_binary_probs(original_token_probs, prefix)
-
-                    if debug:
-                        hat_p_i_values.append(prob_of_one)
-
-                    # Sample bit using PRC watermarking, reusing the same x_i for this token
-                    next_bit = self.sample_binary_token(current_x_i, prob_of_one)
-                    binary_tokens.append(next_bit)
-                    token_bits.append(next_bit)
-                    
-                    prefix += str(next_bit)
-
-                    if prefix in self.decoding:
-                        decoded_token_id = self.decoding[prefix] 
-                        output_tokens.append(decoded_token_id)
-                        decoded_str = self.tokenizer.decode([decoded_token_id])
-                        output_text += decoded_str
-                        
-                        # Store the binary representation of this token for later detection
-                        self.token_binary_map = getattr(self, 'token_binary_map', {})
-                        self.token_binary_map[token_count] = (decoded_token_id, token_bits)
-                        
-                        # Move to next PRC bit for the next token
-                        self.prc_index += 1
-                        token_count += 1
-                        
-                        if debug:
-                            pbar.update(1)
-                        
-                        # if we've used all the bits in the PRC codeword, reset it
-                        if self.prc_index == len(self.prc_codeword):
-                            if debug:
-                                print("Generating new PRC codeword")
-                            self.prc_index = 0
-                            self.prc_codeword = (Encode(self.encoding_key) + 1) / 2
-                        
-                        # Create a tensor with just the new token for the forward pass
-                        next_token_tensor = torch.tensor([[decoded_token_id]], device=self.device)
-                        
-                        # Forward pass with KV cache
-                        with torch.no_grad():
-                            outputs = self.original_model(
-                                input_ids=next_token_tensor,
-                                past_key_values=past_key_values,
-                                use_cache=True
-                            )
-                            # Update KV cache for next iteration
-                            past_key_values = outputs.past_key_values
-                            
-                            # Get logits for the next token prediction
-                            logits = outputs.logits[0, -1, :]
-                            probs = torch.softmax(logits, dim=0)
-                            original_token_probs = {i: probs[i].item() for i in range(len(probs))}
-                            if debug:   
-                                entropy = -torch.sum(probs * torch.log2(probs))
-                                entropies.append(entropy.cpu().item())
-                            
-                        break # Exit the inner loop
-
-                if token_count >= num_tokens:
-                    break
-
-        if debug:
-            print(f"Generated {token_count} tokens with {len(binary_tokens)} binary bits.")
-            # Plot histogram or print summary statistics
-            if hat_p_i_values:
-                plt.figure(figsize=(8, 6))  # Create a new figure for the first plot
-                plt.hist(hat_p_i_values, bins=20, range=(0, 1))
-                plt.title("Distribution of hat_p_i values encountered")
-                plt.xlabel("P(next_bit = 1)")
-                plt.ylabel("Frequency")
-                plt.savefig(f"hat_p_i_distribution.png") # Save the plot
-                print(f"Saved hat_p_i distribution plot.")
-                print(f"Mean hat_p_i: {np.mean(hat_p_i_values):.4f}")
-                print(f"Std dev hat_p_i: {np.std(hat_p_i_values):.4f}")
-                print(f"Fraction near 0.5 (|p - 0.5| < 0.1): {np.mean(np.abs(np.array(hat_p_i_values) - 0.5) < 0.1):.4f}")
-                plt.close()  # Close the first plot
-
-            if entropies:
-                # Create a new figure for the entropy plot
-                plt.figure(figsize=(8, 6))
-                plt.hist(entropies, bins=20)
-                plt.title(f"Entropy dist, mean: {np.mean(entropies):.4f}, std dev: {np.std(entropies):.4f}")
-                plt.xlabel("Entropy")
-                plt.ylabel("Frequency")
-                plt.savefig(f"entropy_distribution.png") # Save the plot
-                plt.close()  # Close the second plot
-
-        # Store the token to PRC bit mapping for detection
-        self.token_to_prc_bit = token_to_prc_bit
-        
-        return output_tokens, output_text, token_to_prc_bit

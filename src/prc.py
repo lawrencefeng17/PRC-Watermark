@@ -114,7 +114,7 @@ def Encode(encoding_key, message=None):
 
     return 1 - 2 * torch.tensor(payload @ generator_matrix.T + one_time_pad + error, dtype=float)
 
-def Encode_simple(encoding_key, message=None):
+def Encode_No_OTP(encoding_key, message=None):
     generator_matrix, one_time_pad, test_bits, g, noise_rate = encoding_key
     n, k = generator_matrix.shape
 
