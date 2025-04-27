@@ -15,7 +15,7 @@ import argparse
 import os
 from tqdm import tqdm
 
-from src.prc import Encode, Encode_simple, Decode, KeyGen
+from src.prc import Encode, Encode_No_OTP, Decode, KeyGen
 from huffman import huffman_encode, huffman_decode, build_huffman_tree, generate_huffman_codes
 
 from binarized import BinarizedModel
@@ -97,54 +97,15 @@ def detect_hamming_text_per_token(binarized_model, watermarked_text):
     
     return threshold, hamming_weight, result
 
-def detect_hamming_text_per_token_with_map(binarized_model, token_to_prc_bit):
-    """
-    Detects watermark using the stored token to PRC bit mapping.
-    This is a more direct detection method when we have access to the original mapping.
-    
-    Args:
-        binarized_model: The binarized model used for generation
-        token_to_prc_bit: Dictionary mapping token indices to PRC bits used for generation
-        
-    Returns:
-        threshold: Detection threshold
-        hamming_weight: Hamming weight of the parity check result
-        result: Boolean indicating whether watermark is detected
-    """
-    # Create tensor from the stored PRC bits
-    reconstructed_prc_bits = torch.tensor(
-        [bit for _, bit in sorted(token_to_prc_bit.items())], 
-        dtype=float
-    )
-    
-    # Ensure we have enough bits - pad with zeros if needed
-    if len(reconstructed_prc_bits) < binarized_model.n:
-        reconstructed_prc_bits = torch.cat([
-            reconstructed_prc_bits, 
-            torch.zeros(binarized_model.n - len(reconstructed_prc_bits))
-        ])
-    # If we have too many bits, truncate
-    elif len(reconstructed_prc_bits) > binarized_model.n:
-        reconstructed_prc_bits = reconstructed_prc_bits[:binarized_model.n]
-        
-    # Apply parity check matrix to get detection result
-    parity_check_matrix = binarized_model.decoding_key[1]
-    r = parity_check_matrix.shape[0]
-    
-    # compute Px
-    Px = (parity_check_matrix @ reconstructed_prc_bits) % 2
-    
-    hamming_weight = np.sum(Px)
-    
-    threshold = (1/2 - r**(-1/4)) * r
-    # if below threshold, then detection
-    result = hamming_weight < threshold
-    
-    return threshold, hamming_weight, result
-     
 def detect_hamming_binary(binarized_model, watermarked_text_binary):
     """
     Detects if the provided binary string is watermarked, using hamming distance.
+
+    Using Chernoff bound, wt(Px \\xor Pz) \\geq (1/2 - r^(-1/4)) * r with high probability.
+    
+    This is instead of computing wt(Px). "The issue is that, while most fixed strings will decode to bottom, a small fraction of strings will decode to 1 regardless of P. [e.g. 0 decodes to 1 because wt(0) = 0]." To address this, we include a one-time pad in the public key.
+
+    Described on Page 14 of CG24 and in Section 5 of CG24.
     """
     if len(watermarked_text_binary) < binarized_model.n:
         watermarked_text_binary = torch.cat([watermarked_text_binary, torch.zeros(binarized_model.n - len(watermarked_text_binary))])
@@ -155,8 +116,15 @@ def detect_hamming_binary(binarized_model, watermarked_text_binary):
     
     # compute Px
     Px = (parity_check_matrix @ watermarked_text_binary) % 2
+
+    # compute Pz, where z is the one-time pad
+    z = binarized_model.decoding_key[2]
+    Pz = (parity_check_matrix @ z) % 2
+
+    # compute Px \\xor Pz
+    Px_xor_Pz = (Px + Pz) % 2
     
-    hamming_weight = np.sum(Px)
+    hamming_weight = np.sum(Px_xor_Pz)
     
     threshold = (1/2 - r**(-1/4)) * r
     # if below threshold, then detection
@@ -219,6 +187,8 @@ def main():
     parser.add_argument('--temperature', type=float, default=0.7)
     parser.add_argument('--message_length', type=int, default=0)    
     parser.add_argument('--new', action='store_true')
+    # by default, we use the token-level watermarking scheme
+    parser.add_argument('--bit', action='store_true', default=False)
     args = parser.parse_args()
     print(args)
 
@@ -323,31 +293,56 @@ def main():
     # test parity check matrix on codeword
     P = binarized_model.decoding_key[1]
     Px = (P @ binarized_model.prc_codeword) % 2
-    print(f"Px: {Px}")
-    
-    hamming_weight_codeword = np.sum(Px)
+
+    # compute Pz, where z is the one-time pad
+    z = binarized_model.decoding_key[2]
+    Pz = (P @ z) % 2
+
+    # compute Px \\xor Pz
+    Px_xor_Pz = (Px + Pz) % 2
+
+    print(f"Px \\xor Pz: {Px_xor_Pz}")
+    hamming_weight_codeword = np.sum(Px_xor_Pz)
     print(f"Hamming weight of codeword: {hamming_weight_codeword}")
     r = P.shape[0]
     threshold = (1/2 - r**(-1/4)) * r
     print(f"Threshold: {threshold}")
     print(f"For a random codeword, the expected hamming weight is {r/2}")
 
-    # generate watermarked text
-    if not os.path.exists(f'output_tokens_{exp_id}.pkl') or args.new:
-        output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_bits=n, debug=debug)
-        with open(f'output_tokens_{exp_id}.pkl', 'wb') as f:
-            pickle.dump(output_tokens, f)
+    if args.bit:
+        # generate watermarked text
+        if not os.path.exists(f'output_tokens_{exp_id}.pkl') or args.new:
+            print("Generating watermarked text by bit")
+            output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_bits=n, debug=debug)
+            with open(f'output_tokens_{exp_id}.pkl', 'wb') as f:
+                pickle.dump(output_tokens, f)
+        else:
+            with open(f'output_tokens_{exp_id}.pkl', 'rb') as f:
+                output_tokens = pickle.load(f)
+                output_text = ''.join([tokenizer.decode([token_id]) for token_id in output_tokens])
+        # save output tokens
+        print(f"Output text: {output_text}")
+
+        # detect watermark
+        threshold, hamming_weight, result = detect_hamming_text(binarized_model, output_tokens)
+        print(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
     else:
-        with open(f'output_tokens_{exp_id}.pkl', 'rb') as f:
-            output_tokens = pickle.load(f)
-            output_text = ''.join([tokenizer.decode([token_id]) for token_id in output_tokens])
-    # save output tokens
-    print(f"Output text: {output_text}")
+        # generate watermarked text per token
+        if not os.path.exists(f'output_tokens_{exp_id}.pkl') or args.new:
+            print("Generating watermarked text per token")
+            output_tokens, output_text, token_to_prc_bit = binarized_model.watermarked_generate_by_token(prompt, num_tokens=n, debug=debug)
+            with open(f'output_tokens_{exp_id}.pkl', 'wb') as f:
+                pickle.dump(output_tokens, f)
+        else:
+            with open(f'output_tokens_{exp_id}.pkl', 'rb') as f:
+                output_tokens = pickle.load(f)
+                output_text = ''.join([tokenizer.decode([token_id]) for token_id in output_tokens])
+        print(f"Output text: {output_text}")
 
-    # detect watermark
-    threshold, hamming_weight, result = detect_hamming_text(binarized_model, output_tokens)
-    print(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
-
+        # detect watermark
+        threshold, hamming_weight, result = detect_hamming_text_per_token(binarized_model, output_tokens)
+        print(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
+    
     breakpoint()
 
 
