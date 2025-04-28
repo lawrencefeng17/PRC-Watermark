@@ -21,7 +21,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_se
 from datasets import load_dataset
 
 class BinarizedModel:
-    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0):
+    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0, hash_function=None):
         """
         Args:
             original_model: The original (non-binary) language model.
@@ -40,6 +40,8 @@ class BinarizedModel:
         X_pm1 = Encode(encoding_key)
         self.prc_codeword = ((1 - X_pm1) / 2).long()
         self.temperature = temperature
+        self.hash_function = hash_function
+        self.rejection_count = 0
 
         assert len(self.prc_codeword) == n
         self.n = n
@@ -209,7 +211,8 @@ class BinarizedModel:
                         if debug:
                             print("Generating new PRC codeword")
                         self.prc_index = 0
-                        self.prc_codeword = (Encode(self.encoding_key) + 1) / 2
+                        X_pm1 = Encode(self.encoding_key)
+                        self.prc_codeword = ((1 - X_pm1) / 2).long()
 
                     prefix += str(next_bit)
 
@@ -276,8 +279,118 @@ class BinarizedModel:
             print(f"Rejection rate: {rejection_count / len(binary_tokens)}")
 
         return output_tokens, output_text
+    
+    def embed_char(self, x_j, pushforward_probs, debug=True):
+        """
+        Choose a bucket according to the pushforward distribution.
+        
+        Compute Bernoulli(min(1, |Sigma_PRC| * pushforward_probs[x_j])).
+        If the result is 1, return x_j.
+        Otherwise, return a random bucket according to the pushforward distribution.
+        
+        We only choose a bucket if it weight is at least 1/|Sigma_PRC|.
+
+        If probability of prc bucket is greater than 1/|Sigma_PRC|, we accept it with probability 1.
+        Otherwise, we sample it with probability 2 * (probability of prc bucket) - 1/|Sigma_PRC|.
+        Else, we sample it among random buckets with probability at least 1/|Sigma_PRC| (which means we will not sample from the prc bucket).
+        """
+        ones_tensor = torch.ones(1, device=pushforward_probs.device)
+        p = torch.min(ones_tensor, len(pushforward_probs) * pushforward_probs[x_j])
+        if torch.bernoulli(p) == 1:
+            return x_j
+        else:
+            q_i = pushforward_probs - 1/len(pushforward_probs)
+            # only positive q_i
+            q_i = torch.clamp(q_i, min=0)
+            # normalize
+            q_i = q_i / torch.sum(q_i)
+            
+            if debug:
+                self.rejection_count += 1
+            return torch.multinomial(q_i, num_samples=1).item()
 
     def watermarked_generate_by_token(self, prompt, num_tokens, debug=True):
         """
-        Generates text by hashing the vocabulary into two buckets, then samplign from the bucket indicated by the prc-bit.
+        Generates text by hashing the vocabulary into two buckets, then sampling from the bucket indicated by the prc-bit.
         """
+        if self.hash_function is None:
+            # generate a random hash function
+            self.hash_function = lambda x: torch.randint(0, 2, (1,)).item()
+
+        output_tokens = []
+        output_text = ""
+
+        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
+
+        with torch.no_grad():
+            outputs = self.original_model(input_ids=input_ids, use_cache=True)
+            past_key_values = outputs.past_key_values
+            logits = outputs.logits[0, -1, :]
+            probs = torch.softmax(logits / self.temperature, dim=0)
+            # We'll keep this line for compatibility with other code
+            original_token_probs = {i: probs[i].item() for i in range(len(probs))}
+
+        with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
+            while len(output_tokens) < num_tokens:
+                # let x_i be the current PRC codeword bit
+                x_i = self.prc_codeword[self.prc_index].item() 
+
+                # compute pushforward distribution using the hash function
+                hash_tensor = torch.tensor([self.hash_function(i) for i in range(len(probs))], device=self.device)
+                
+                pushforward_probs = torch.zeros(2, device=self.device)
+                pushforward_probs.scatter_add_(0, hash_tensor, probs)
+
+                breakpoint()
+                
+                y_i = self.embed_char(x_i, pushforward_probs) # bucket chosen
+
+                # sample token among tokens in the bucket y_i
+                bucket_mask = (hash_tensor == y_i)
+                
+                bucket_probs = probs.clone()
+                bucket_probs = torch.where(bucket_mask, bucket_probs, torch.zeros_like(bucket_probs))
+                
+                # normalize
+                bucket_probs = bucket_probs / bucket_probs.sum()
+                
+                # Sample a token from the bucket
+                token_id = torch.multinomial(bucket_probs, num_samples=1).item()
+                output_tokens.append(token_id)
+                
+                # Decode the token to text
+                decoded_str = self.tokenizer.decode([token_id])
+                output_text += decoded_str
+                
+                # generate next token
+                next_token_tensor = torch.tensor([[token_id]], device=self.device)
+                with torch.no_grad():
+                    outputs = self.original_model(
+                        input_ids=next_token_tensor,
+                        past_key_values=past_key_values,
+                        use_cache=True
+                    )
+                    past_key_values = outputs.past_key_values
+                    
+                    logits = outputs.logits[0, -1, :]
+                    probs = torch.softmax(logits / self.temperature, dim=0)
+                
+                # update PRC index
+                self.prc_index += 1
+                if self.prc_index == len(self.prc_codeword):
+                    if debug:
+                        print("Generating new PRC codeword")
+                    self.prc_index = 0
+                    X_pm1 = Encode(self.encoding_key)
+                    self.prc_codeword = ((1 - X_pm1) / 2).long()
+                
+                if debug:
+                    pbar.update(1)
+                
+        if debug:
+            print(f"Rejection count: {self.rejection_count}")
+            print(f"Rejection rate: {self.rejection_count / num_tokens}")
+
+        # Return the generated tokens and text
+        return output_tokens, output_text
+            
