@@ -158,9 +158,40 @@ def corrupt_watermarked_text(binarized_model, watermarked_text, corruption_rate=
     
     return watermarked_text_binary
 
+def story_prompts():
+    """
+    From MarkMyWords benchmark. 
+    """
+    story_prompt = "Write a {}story about {}."
+    
+    t1 = ["", "funny ", "sad ", "dramatic ", "suspenseful ", "thrilling "]
+    t2 = [
+        "a man on a quest to find the Holy Grail.",
+        "two college friends falling in love.",
+        "a policeman saving a building held hostage by group of terrorists.",
+        "the struggle of publishing an academic paper.",
+        "a murder investigation in an old mansion.",
+        "a young prodigy that becomes orphaned.",
+        "a middle-aged woman that discovers a ghost and befriends it.",
+        "a long journey to Japan that is interrupted by a disaster.",
+        "a poor child that comes into an unexpected fortune.",
+        "three strangers that win a getaway vacation together.",
+        "a retired astronaut that joins a risky interstellar rescue mission.",
+        "an AI that begins to question its own existence.",
+        "a small coastal town plagued by inexplicable supernatural occurrences.",
+        "a reclusive writer that receives mysterious, prophetic letters in the mail.",
+        "a linguist tasked with deciphering an ancient language that holds the secrets of a lost civilization.",
+        "an antique restorer that finds an enchanted mirror showing glimpses of different timelines.",
+        ]
+
+
+    story_topics = [(i, j) for i in t1 for j in t2][:100]
+    story_prompts = [story_prompt.format(i, j) for i, j in story_topics]
+    return story_prompts
+
 def main():
     parser = argparse.ArgumentParser('Args')
-    parser.add_argument('--prompt', type=str, default='Tell me a fantastical story about a wizard.')
+    parser.add_argument('--prompt', type=str, default='Write a thrilling story about a murder investigation in an old mansion.')
     parser.add_argument('--test_num', type=int, default=10)
     parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B')
     # parser.add_argument('--dataset_id', type=str, default='databricks/databricks-dolly-15k')
@@ -271,6 +302,7 @@ def main():
         decoding_key=decoding_key,
         n=n,
         tokenizer=tokenizer,
+        vocab_size=vocab_size,
         encoding=encoding,
         decoding=decoding,
         temperature=temperature)
