@@ -21,7 +21,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_se
 from datasets import load_dataset
 
 class BinarizedModel:
-    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0, hash_function=None):
+    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0, vocab_size=None):
         """
         Args:
             original_model: The original (non-binary) language model.
@@ -40,7 +40,10 @@ class BinarizedModel:
         X_pm1 = Encode(encoding_key)
         self.prc_codeword = ((1 - X_pm1) / 2).long()
         self.temperature = temperature
-        self.hash_function = hash_function
+
+        self.vocab_size = vocab_size
+        self.token_hashes = torch.randint(0, 2, (self.vocab_size,), device=self.device)
+        self.hash_function = lambda x: self.token_hashes[x]
         self.rejection_count = 0
 
         assert len(self.prc_codeword) == n
@@ -161,6 +164,7 @@ class BinarizedModel:
         binary_tokens = []
         output_tokens = []
         output_text = ""
+        hash_tensor = self.token_hashes
 
         # Encode the prompt and prepare for generation
         input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
@@ -313,10 +317,6 @@ class BinarizedModel:
         """
         Generates text by hashing the vocabulary into two buckets, then sampling from the bucket indicated by the prc-bit.
         """
-        if self.hash_function is None:
-            # generate a random hash function
-            self.hash_function = lambda x: torch.randint(0, 2, (1,)).item()
-
         output_tokens = []
         output_text = ""
 
@@ -327,21 +327,22 @@ class BinarizedModel:
             past_key_values = outputs.past_key_values
             logits = outputs.logits[0, -1, :]
             probs = torch.softmax(logits / self.temperature, dim=0)
-            # We'll keep this line for compatibility with other code
             original_token_probs = {i: probs[i].item() for i in range(len(probs))}
+
+        if debug:
+            weight_zero_bucket = []
+            weight_one_bucket = []
 
         with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
             while len(output_tokens) < num_tokens:
                 # let x_i be the current PRC codeword bit
                 x_i = self.prc_codeword[self.prc_index].item() 
 
-                # compute pushforward distribution using the hash function
-                hash_tensor = torch.tensor([self.hash_function(i) for i in range(len(probs))], device=self.device)
-                
                 pushforward_probs = torch.zeros(2, device=self.device)
                 pushforward_probs.scatter_add_(0, hash_tensor, probs)
-
-                breakpoint()
+                if debug:
+                    weight_zero_bucket.append(pushforward_probs[0].item())
+                    weight_one_bucket.append(pushforward_probs[1].item())
                 
                 y_i = self.embed_char(x_i, pushforward_probs) # bucket chosen
 
@@ -354,8 +355,9 @@ class BinarizedModel:
                 # normalize
                 bucket_probs = bucket_probs / bucket_probs.sum()
                 
-                # Sample a token from the bucket
+                # Sample a token from the bucket according to the probability distribution
                 token_id = torch.multinomial(bucket_probs, num_samples=1).item()
+
                 output_tokens.append(token_id)
                 
                 # Decode the token to text
