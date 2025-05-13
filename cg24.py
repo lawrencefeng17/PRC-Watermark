@@ -13,6 +13,8 @@ import json
 from collections import defaultdict
 import argparse
 import os
+import datetime
+import shutil
 from tqdm import tqdm
 
 from src.prc import Encode, Encode_No_OTP, Decode, KeyGen
@@ -134,6 +136,11 @@ def convert_watermarked_text_to_binary(binarized_model, watermarked_text):
     watermarked_text_binary = 2 * watermarked_text_binary - 1
     return watermarked_text_binary
 
+def convert_watermarked_by_token_to_binary(binarized_model, watermarked_text):
+    watermarked_text_binary = torch.tensor([binarized_model.hash_function(token_id) for token_id in watermarked_text], dtype=float)
+    watermarked_text_binary = 2 * watermarked_text_binary - 1
+    return watermarked_text_binary
+
 def corrupt_watermarked_text(binarized_model, watermarked_text, corruption_rate=0.1):
     """
     Randomly flips bits in the binary representation of watermarked text.
@@ -193,22 +200,29 @@ def main():
     parser = argparse.ArgumentParser('Args')
     parser.add_argument('--prompt', type=str, default='Write a thrilling story about a murder investigation in an old mansion.')
     parser.add_argument('--test_num', type=int, default=10)
-    parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B')
+    # parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B')
+    parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B-Instruct')
     # parser.add_argument('--dataset_id', type=str, default='databricks/databricks-dolly-15k')
     parser.add_argument('--inf_steps', type=int, default=50)
     parser.add_argument('--nowm', type=int, default=0)
     parser.add_argument('--fpr', type=float, default=0.00001)
     parser.add_argument('--prc_t', type=int, default=3)
-    parser.add_argument('--n', type=int, default=2**11)
+    parser.add_argument('--n', type=int, default=2**14)
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--temperature', type=float, default=0.7)
     parser.add_argument('--message_length', type=int, default=0)    
     parser.add_argument('--new', action='store_true')
     # by default, we use the token-level watermarking scheme
     parser.add_argument('--bit', action='store_true', default=False)
+    parser.add_argument('--top_p', type=float, default=0.9)
+    parser.add_argument('--output_dir', type=str, default='experiments')
     args = parser.parse_args()
     print(args)
 
+    # Generate timestamp for this run
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Setup experiment ID
     hf_cache_dir = '/home/lawrence/.cache/huggingface/hub'
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     test_num = args.test_num
@@ -220,14 +234,41 @@ def main():
     debug = args.debug
     temperature = args.temperature
     message_length = args.message_length
-    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_t_{prc_t}_fpr_{fpr}_nowm_{nowm}_n_{n}_temperature_{temperature}_message_length_{message_length}'
+    top_p = args.top_p
+    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_t_{prc_t}_fpr_{fpr}_nowm_{nowm}_n_{n}_temperature_{temperature}_message_length_{message_length}_top_p_{top_p}'
+    
+    # Create experiment directory with timestamp
+    experiment_dir = os.path.join(args.output_dir, f"{exp_id}_{timestamp}")
+    os.makedirs(experiment_dir, exist_ok=True)
+    
+    # Create subdirectories
+    plots_dir = os.path.join(experiment_dir, "plots")
+    tokens_dir = os.path.join(experiment_dir, "tokens")
+    text_dir = os.path.join(experiment_dir, "text")
+    os.makedirs(plots_dir, exist_ok=True)
+    os.makedirs(tokens_dir, exist_ok=True)
+    os.makedirs(text_dir, exist_ok=True)
+    
+    # Setup logging
+    log_file = os.path.join(experiment_dir, "experiment_log.txt")
+    
+    def log_message(message):
+        """Helper function to log messages both to console and log file"""
+        print(message)
+        with open(log_file, "a") as f:
+            f.write(f"{message}\n")
+    
+    # Log experiment configuration
+    log_message(f"Experiment ID: {exp_id}")
+    log_message(f"Timestamp: {timestamp}")
+    log_message(f"Parameters: {vars(args)}")
 
-    print("Loading model...")
+    log_message("Loading model...")
     config = AutoConfig.from_pretrained(model_id)
     tokenizer = AutoTokenizer.from_pretrained(model_id)
     tokenizer.padding_side = 'left'
 
-        # Add padding token if it doesn't exist
+    # Add padding token if it doesn't exist
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
@@ -238,20 +279,22 @@ def main():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     model = model.to(device)
 
-    print(f"Model loaded on {device}")
-
-    # Load the dataset
-    # dataset = load_dataset(args.dataset_id, split='train')
-    # print(f"Dataset loaded with {len(dataset)} examples")
+    log_message(f"Model loaded on {device}")
 
     # Get the prompt
     prompt = args.prompt
-    print(f"Prompt: {prompt}")
+    log_message(f"Prompt: {prompt}")
 
     # Get the encoding key
-    print(f"Setting up PRC keys for {exp_id}")
+    log_message(f"Setting up PRC keys for {exp_id}")
     encoding_key, decoding_key = setup(exp_id, n, message_length, fpr, prc_t)
-    print(f"PRC keys set up")
+    log_message(f"PRC keys set up")
+
+    # Save a copy of the key to the experiment directory
+    key_path = os.path.join(experiment_dir, f"{exp_id}_key.pkl")
+    with open(key_path, 'wb') as f:
+        pickle.dump((encoding_key, decoding_key), f)
+    log_message(f"Saved key to {key_path}")
 
     if not debug:
         if not os.path.exists(f'encoding.pkl'):
@@ -270,12 +313,17 @@ def main():
         else:
             with open(f'encoding.pkl', 'rb') as f:
                 encoding = pickle.load(f)
-        print(f"Encoding loaded")
+        log_message(f"Encoding loaded")
+
+        # Save a copy of the encoding to the experiment directory
+        encoding_path = os.path.join(experiment_dir, "encoding.pkl")
+        shutil.copy('encoding.pkl', encoding_path)
+        log_message(f"Saved encoding copy to {encoding_path}")
 
         decoding = {code: token_id for token_id, code in encoding.items()}
     else:
         # Generate truly random unique encodings for each token
-        print("Generating random encoding")
+        log_message("Generating random encoding")
         vocab_size = len(tokenizer)  # Or from config
         code_length = math.ceil(math.log2(vocab_size)) + 3  # Add a few extra bits to reduce collisions
         
@@ -294,6 +342,12 @@ def main():
                     break
         
         decoding = {code: i for i, code in encoding.items()}
+        
+        # Save the random encoding
+        encoding_path = os.path.join(experiment_dir, "random_encoding.pkl")
+        with open(encoding_path, 'wb') as f:
+            pickle.dump(encoding, f)
+        log_message(f"Saved random encoding to {encoding_path}")
 
     # Binarize the model
     binarized_model = BinarizedModel(
@@ -305,8 +359,9 @@ def main():
         vocab_size=vocab_size,
         encoding=encoding,
         decoding=decoding,
-        temperature=temperature)
-    print(f"Binarized model loaded")
+        temperature=temperature,
+        top_p=top_p)
+    log_message(f"Binarized model loaded")
     
     # test parity check matrix on codeword
     P = binarized_model.decoding_key[1]
@@ -319,49 +374,155 @@ def main():
     # compute Px \\xor Pz
     Px_xor_Pz = (Px + Pz) % 2
 
-    print(f"Px \\xor Pz: {Px_xor_Pz}")
     hamming_weight_codeword = np.sum(Px_xor_Pz)
-    print(f"Hamming weight of codeword: {hamming_weight_codeword}")
+    log_message(f"Hamming weight of codeword: {hamming_weight_codeword}")
     r = P.shape[0]
     threshold = (1/2 - r**(-1/4)) * r
-    print(f"Threshold: {threshold}")
-    print(f"For a random codeword, the expected hamming weight is {r/2}")
+    log_message(f"Threshold: {threshold}")
+    log_message(f"For a random codeword, the expected hamming weight is {r/2}")
+
+    # Custom function to save plots to the plots directory
+    def save_plot_to_dir(plot_path):
+        # If the plot exists in the root directory (old location)
+        if os.path.exists(plot_path):
+            # Get the filename
+            filename = os.path.basename(plot_path)
+            # Create new path in plots directory
+            new_path = os.path.join(plots_dir, filename)
+            # Move the file
+            shutil.move(plot_path, new_path)
+            return new_path
+        return None
+
+    # Record experiment start time
+    start_time = datetime.datetime.now()
+    log_message(f"Generation started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
     if args.bit:
         # generate watermarked text
-        if not os.path.exists(f'output_tokens_{exp_id}.pkl') or args.new:
-            print("Generating watermarked text by bit")
+        output_tokens_path = os.path.join(tokens_dir, f"output_tokens.pkl")
+        
+        if not os.path.exists(output_tokens_path) or args.new:
+            log_message("Generating watermarked text by bit")
             output_tokens, output_text = binarized_model.watermarked_generate(prompt, num_bits=n, debug=debug)
-            with open(f'output_tokens_{exp_id}.pkl', 'wb') as f:
+            
+            # Save the tokens
+            with open(output_tokens_path, 'wb') as f:
                 pickle.dump(output_tokens, f)
+            
+            # Save the generated text
+            output_text_path = os.path.join(text_dir, "output_text.txt")
+            with open(output_text_path, 'w', encoding='utf-8') as f:
+                f.write(output_text)
+            
+            # Move any generated plots to the plots directory
+            save_plot_to_dir("hat_p_i_distribution.png")
+            save_plot_to_dir("entropy_distribution.png")
         else:
-            with open(f'output_tokens_{exp_id}.pkl', 'rb') as f:
+            with open(output_tokens_path, 'rb') as f:
                 output_tokens = pickle.load(f)
                 output_text = ''.join([tokenizer.decode([token_id]) for token_id in output_tokens])
-        # save output tokens
-        print(f"Output text: {output_text}")
+            
+            # Save the text if it doesn't exist
+            output_text_path = os.path.join(text_dir, "output_text.txt")
+            if not os.path.exists(output_text_path):
+                with open(output_text_path, 'w', encoding='utf-8') as f:
+                    f.write(output_text)
+                    
+        log_message(f"Output text saved to {output_text_path}")
+        print(output_text)
 
         # detect watermark
         threshold, hamming_weight, result = detect_hamming_text(binarized_model, output_tokens)
-        print(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
+        log_message(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
+        
+        # Save detection results
+        detection_path = os.path.join(experiment_dir, "detection_results.json")
+        detection_results = {
+            "threshold": float(threshold),
+            "hamming_weight": float(hamming_weight),
+            "detection_result": bool(result),
+            "method": "bit-level"
+        }
+        with open(detection_path, 'w') as f:
+            json.dump(detection_results, f, indent=2)
     else:
         # generate watermarked text per token
-        if not os.path.exists(f'output_tokens_{exp_id}.pkl') or args.new:
-            print("Generating watermarked text per token")
+        output_tokens_path = os.path.join(tokens_dir, f"output_tokens.pkl")
+        
+        if not os.path.exists(output_tokens_path) or args.new:
+            log_message("Generating watermarked text per token")
             output_tokens, output_text = binarized_model.watermarked_generate_by_token(prompt, num_tokens=n, debug=debug)
-            with open(f'output_tokens_{exp_id}.pkl', 'wb') as f:
+            
+            # Save the tokens
+            with open(output_tokens_path, 'wb') as f:
                 pickle.dump(output_tokens, f)
+            
+            # Save the generated text
+            output_text_path = os.path.join(text_dir, "output_text.txt")
+            with open(output_text_path, 'w', encoding='utf-8') as f:
+                f.write(output_text)
+            
+            # Move any generated plots to the plots directory
+            save_plot_to_dir("bucket_0_distribution.png")
+            save_plot_to_dir("bucket_1_distribution.png")
+            save_plot_to_dir("entropy_distribution.png")
         else:
-            with open(f'output_tokens_{exp_id}.pkl', 'rb') as f:
+            with open(output_tokens_path, 'rb') as f:
                 output_tokens = pickle.load(f)
                 output_text = ''.join([tokenizer.decode([token_id]) for token_id in output_tokens])
-        print(f"Output text: {output_text}")
+            
+            # Save the text if it doesn't exist
+            output_text_path = os.path.join(text_dir, "output_text.txt")
+            if not os.path.exists(output_text_path):
+                with open(output_text_path, 'w', encoding='utf-8') as f:
+                    f.write(output_text)
+                    
+        log_message(f"Output text saved to {output_text_path}")
 
         # detect watermark
         threshold, hamming_weight, result = detect_hamming_text_per_token(binarized_model, output_tokens)
-        print(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
+        log_message(f"Threshold: {threshold}, Hamming weight: {hamming_weight}, Result: {result}")
         
-    breakpoint()
+        # Save detection results
+        detection_path = os.path.join(experiment_dir, "detection_results.json")
+        detection_results = {
+            "threshold": float(threshold),
+            "hamming_weight": float(hamming_weight),
+            "detection_result": bool(result),
+            "method": "token-level"
+        }
+        with open(detection_path, 'w') as f:
+            json.dump(detection_results, f, indent=2)
+    
+    # Record experiment end time
+    end_time = datetime.datetime.now()
+    duration = end_time - start_time
+    log_message(f"Generation completed at: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    log_message(f"Total duration: {duration}")
+    
+    # Save experiment summary
+    summary_path = os.path.join(experiment_dir, "experiment_summary.json")
+    summary = {
+        "experiment_id": exp_id,
+        "timestamp": timestamp,
+        "start_time": start_time.strftime('%Y-%m-%d %H:%M:%S'),
+        "end_time": end_time.strftime('%Y-%m-%d %H:%M:%S'),
+        "duration_seconds": duration.total_seconds(),
+        "parameters": vars(args),
+        "detection_results": detection_results,
+        "model_id": model_id,
+        "device": device,
+        "prompt": prompt
+    }
+    with open(summary_path, 'w') as f:
+        json.dump(summary, f, indent=2)
+    
+    log_message(f"Experiment results saved to {experiment_dir}")
+    log_message(f"Experiment summary saved to {summary_path}")
+    
+    if debug:
+        breakpoint()
 
 
 if __name__ == "__main__":

@@ -27,10 +27,28 @@ That is, take the SUM of (probabilities of tokens) whose encoding begins with th
 To run the text watermarking procedure, use the following command:
 
 ```
-python cg24.py --n 2048 --prc_t 3 --temperature 1 --debug --new
+python cg24.py --n 2048 --prc_t 3 --temperature 1 --debug --new --top_p 0.95
 ```
 
 This will watermark the text with a PRC code of length 2048. The parity check matrix is t-sparse, given by prc_t. The temperature is the temperature of the LLM. 
 
 Debug will enable the generation of graphs and other statistics. New will force the generation of a new piece of text (watermarked text can be saved and reused).
+
+Additional arguments:
+* --prompt: the prompt to watermark.
+
 ```
+
+### Issues
+
+#### Embedding the PRC symbol
+
+* The rejection rate is too high, at around 40% when watermarking bit by bit.
+* Instead, we take inspiration from GM24 and use a bucket-based approach.
+* We hash the vocabulary into two buckets, then perform a biased sample in favor of the bucket indicated by the PRC-bit.
+* The problem is that most texted generated is not 2048 tokens.
+
+#### Practicalities of quality LLM generation
+
+* In practice, top-p or top-k sampling is used to avoid degenerate text. The current theretical approaches rely on sampling from the full token distribution, but this is not practical. While distribution preserving, it doesn't actually produce quality text.
+* I'm currently experimenting with thresholding the distribution in a top-p style, combining it with the bucket-based approach by GM24.
