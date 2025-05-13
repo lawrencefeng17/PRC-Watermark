@@ -21,7 +21,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, set_se
 from datasets import load_dataset
 
 class BinarizedModel:
-    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0, vocab_size=None):
+    def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, frequencies=None, encoding=None, decoding=None, temperature=1.0, vocab_size=None, top_p=0.9):
         """
         Args:
             original_model: The original (non-binary) language model.
@@ -31,6 +31,8 @@ class BinarizedModel:
             encoding:  A dictionary mapping original tokens to binary strings (prefix-free).
             decoding: A dictionary mapping binary strings to original tokens.
             temperature: The temperature for the model.
+            vocab_size: The vocabulary size.
+            top_p: The cumulative probability for top-p sampling.
         """
         self.original_model = original_model
         self.tokenizer = tokenizer
@@ -50,6 +52,7 @@ class BinarizedModel:
         self.n = n
 
         self.prc_index = 0
+        self.top_p = top_p
 
         assert frequencies is not None or (encoding is not None and decoding is not None)
 
@@ -154,7 +157,9 @@ class BinarizedModel:
 
     def watermarked_generate(self, prompt, num_bits, debug=True):
         """
-        Generates text using the watermarked, binarized model with KV-caching for improved efficiency.
+        Generates text using the watermarked, binarized model.
+        
+        This function does not successfully produce watermarked text. The rejection rate is too high. 
         
         Args:
             prompt: The initial prompt for generation
@@ -311,14 +316,24 @@ class BinarizedModel:
             
             if debug:
                 self.rejection_count += 1
+                self.rejections.append(True)
             return torch.multinomial(q_i, num_samples=1).item()
 
-    def watermarked_generate_by_token(self, prompt, num_tokens, debug=True):
+    def watermarked_generate_by_token(self, prompt, num_tokens, top_p=None, debug=True):
         """
         Generates text by hashing the vocabulary into two buckets, then sampling from the bucket indicated by the prc-bit.
+        Only considers top-p tokens for hashing and sampling.
+
+        Args:
+            prompt: The initial prompt for generation.
+            num_tokens: The number of tokens to generate.
+            top_p: The cumulative probability for top-p sampling. Defaults to self.top_p.
+            debug: Whether to generate debug plots and statistics.
         """
         output_tokens = []
         output_text = ""
+        
+        top_p = top_p if top_p is not None else self.top_p
 
         input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
 
@@ -327,43 +342,84 @@ class BinarizedModel:
             past_key_values = outputs.past_key_values
             logits = outputs.logits[0, -1, :]
             probs = torch.softmax(logits / self.temperature, dim=0)
-            original_token_probs = {i: probs[i].item() for i in range(len(probs))}
 
         if debug:
             weight_zero_bucket = []
             weight_one_bucket = []
+            num_top_p_tokens = []
+            self.rejection_count = 0 # Initialize rejection_count for the generation run
+            self.rejections = []
 
         with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
             while len(output_tokens) < num_tokens:
+                # Select Top-p tokens
+                sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
+                
+                top_p_mask = cumulative_probs < top_p
+                # Include the first token that exceeds top_p, or all if sum < top_p
+                if top_p_mask.sum() < len(sorted_probs): # check if there are tokens beyond top_p threshold
+                    top_p_mask[top_p_mask.sum()] = True 
+                else: # if all tokens are within top_p (e.g. top_p = 1.0 or very few tokens)
+                    pass # top_p_mask already includes all tokens if sum < top_p
+
+                top_p_indices = sorted_indices[top_p_mask]
+                top_p_probs = sorted_probs[top_p_mask]
+                
+                # Normalize
+                top_p_probs = top_p_probs / torch.sum(top_p_probs)
+
+                # Get hashes for the top-p tokens
+                current_hash_tensor = self.token_hashes[top_p_indices]
+
                 # let x_i be the current PRC codeword bit
                 x_i = self.prc_codeword[self.prc_index].item() 
 
                 pushforward_probs = torch.zeros(2, device=self.device)
-                pushforward_probs.scatter_add_(0, hash_tensor, probs)
+                pushforward_probs.scatter_add_(0, index=current_hash_tensor, src=top_p_probs)
+                
                 if debug:
+                    num_top_p_tokens.append(len(top_p_indices))
                     weight_zero_bucket.append(pushforward_probs[0].item())
                     weight_one_bucket.append(pushforward_probs[1].item())
                 
-                y_i = self.embed_char(x_i, pushforward_probs) # bucket chosen
+                y_i = self.embed_char(x_i, pushforward_probs, debug=debug) # bucket chosen
 
-                # sample token among tokens in the bucket y_i
-                bucket_mask = (hash_tensor == y_i)
+                # sample token among tokens in the bucket y_i from the top-p set
+                bucket_mask_top_p = (current_hash_tensor == y_i)
                 
-                bucket_probs = probs.clone()
-                bucket_probs = torch.where(bucket_mask, bucket_probs, torch.zeros_like(bucket_probs))
+                # Get probabilities of tokens in the chosen bucket from the top_p set
+                bucket_probs_top_p = top_p_probs.clone() # Start with normalized top_p_probs
+                # Zero out probabilities of tokens not in the chosen bucket
+                bucket_probs_top_p = torch.where(bucket_mask_top_p, bucket_probs_top_p, torch.zeros_like(bucket_probs_top_p))
                 
-                # normalize
-                bucket_probs = bucket_probs / bucket_probs.sum()
+                # check if the chosen bucket is empty
+                if torch.sum(bucket_probs_top_p) > 0:
+                    bucket_probs_top_p = bucket_probs_top_p / torch.sum(bucket_probs_top_p)
+                else:
+                    if debug:
+                        print(f"Warning: Bucket {y_i} was empty after top-p filtering. Sampling from all top-p tokens.")
+                    if torch.sum(top_p_probs) > 0: # Ensure top_p_probs itself is not all zeros
+                         bucket_probs_top_p = top_p_probs 
+                    else:
+                        assert False
+
+                # Greedily select the token with the highest probability in the bucket
+                sampled_relative_index = torch.argmax(bucket_probs_top_p).item()
                 
-                # Sample a token from the bucket according to the probability distribution
-                token_id = torch.multinomial(bucket_probs, num_samples=1).item()
+                # Get the actual token_id
+                token_id = top_p_indices[sampled_relative_index].item()
+
+                # if eos, then skip
+                if token_id == self.tokenizer.eos_token_id:
+                    continue
 
                 output_tokens.append(token_id)
                 
                 # Decode the token to text
                 decoded_str = self.tokenizer.decode([token_id])
                 output_text += decoded_str
-                
+
                 # generate next token
                 next_token_tensor = torch.tensor([[token_id]], device=self.device)
                 with torch.no_grad():
@@ -375,7 +431,7 @@ class BinarizedModel:
                     past_key_values = outputs.past_key_values
                     
                     logits = outputs.logits[0, -1, :]
-                    probs = torch.softmax(logits / self.temperature, dim=0)
+                    probs = torch.softmax(logits / self.temperature, dim=0) # Update probs for the next iteration
                 
                 # update PRC index
                 self.prc_index += 1
@@ -390,8 +446,33 @@ class BinarizedModel:
                     pbar.update(1)
                 
         if debug:
+            # rejection rate
             print(f"Rejection count: {self.rejection_count}")
             print(f"Rejection rate: {self.rejection_count / num_tokens}")
+            
+            # Plot the distribution of bucket weights
+            plt.figure(figsize=(8, 6))
+            plt.hist(weight_zero_bucket, bins=20, range=(0, 1))
+            plt.title(f"Distribution of bucket 0 weights (mean: {np.mean(weight_zero_bucket):.4f})")
+            plt.xlabel("Probability in bucket 0")
+            plt.ylabel("Frequency")
+            plt.savefig("bucket_0_distribution.png")
+            plt.close()
+            
+            plt.figure(figsize=(8, 6))
+            plt.hist(weight_one_bucket, bins=20, range=(0, 1))
+            plt.title(f"Distribution of bucket 1 weights (mean: {np.mean(weight_one_bucket):.4f})")
+            plt.xlabel("Probability in bucket 1")
+            plt.ylabel("Frequency")
+            plt.savefig("bucket_1_distribution.png")
+            plt.close()
+            
+            # Print some statistics about bucket weights
+            print(f"Mean weight in bucket 0: {np.mean(weight_zero_bucket):.4f}")
+            print(f"Mean weight in bucket 1: {np.mean(weight_one_bucket):.4f}")
+            print(f"Frequency of bucket 0 being empty (weight = 0): {np.mean(np.array(weight_zero_bucket) == 0.0):.4f}")
+            print(f"Frequency of bucket 1 being empty (weight = 0): {np.mean(np.array(weight_one_bucket) == 0.0):.4f}")
+            print(f"Frequency of buckets being heavily imbalanced (weight > 0.95): {np.mean(np.logical_or(np.array(weight_zero_bucket) > 0.95, np.array(weight_one_bucket) > 0.95)):.4f}")
 
         # Return the generated tokens and text
         return output_tokens, output_text
