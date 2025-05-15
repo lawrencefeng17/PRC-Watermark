@@ -1,0 +1,24 @@
+Experiment ID: binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False
+Timestamp: 20250514_235333
+Parameters: {'prompt': 'Write a thrilling story about a murder investigation in an old mansion.', 'test_num': 10, 'model_id': 'meta-llama/Llama-3.2-1B-Instruct', 'inf_steps': 50, 'nowm': 0, 'fpr': 1e-05, 'prc_t': 25, 'n': 2048, 'debug': True, 'temperature': 1.0, 'message_length': 0, 'new': True, 'bit': False, 'top_p': 0.98, 'output_dir': 'experiments', 'greedy': False}
+Loading model...
+Model loaded on cuda
+Prompt: Write a thrilling story about a murder investigation in an old mansion.
+Setting up PRC keys for binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False
+PRC keys set up
+Saved key to experiments/binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False_20250514_235333/binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False_key.pkl
+Generating random encoding
+Saved random encoding to experiments/binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False_20250514_235333/random_encoding.pkl
+Binarized model loaded
+Hamming weight of codeword: 73
+Threshold: 565.729066966542
+For a random codeword, the expected hamming weight is 824.5
+Generation started at: 2025-05-14 23:53:53
+Generating watermarked text per token, greedy=False
+Output text saved to experiments/binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False_20250514_235333/text/output_text.txt
+Rejection rate: 0.43359375
+Threshold: 565.729066966542, Hamming weight: 830.0, Result: False
+Generation completed at: 2025-05-14 23:54:49
+Total duration: 0:00:55.884978
+Experiment results saved to experiments/binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False_20250514_235333
+Experiment summary saved to experiments/binarize_num_10_steps_50_t_25_fpr_1e-05_nowm_0_n_2048_temperature_1.0_message_length_0_top_p_0.98_greedy_False_20250514_235333/experiment_summary.json

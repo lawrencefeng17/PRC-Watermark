@@ -216,6 +216,7 @@ def main():
     parser.add_argument('--bit', action='store_true', default=False)
     parser.add_argument('--top_p', type=float, default=0.9)
     parser.add_argument('--output_dir', type=str, default='experiments')
+    parser.add_argument('--greedy', action='store_true', default=False)
     args = parser.parse_args()
     print(args)
 
@@ -235,7 +236,8 @@ def main():
     temperature = args.temperature
     message_length = args.message_length
     top_p = args.top_p
-    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_t_{prc_t}_fpr_{fpr}_nowm_{nowm}_n_{n}_temperature_{temperature}_message_length_{message_length}_top_p_{top_p}'
+    greedy = args.greedy
+    exp_id = f'binarize_num_{test_num}_steps_{args.inf_steps}_t_{prc_t}_fpr_{fpr}_nowm_{nowm}_n_{n}_temperature_{temperature}_message_length_{message_length}_top_p_{top_p}_greedy_{greedy}'
     
     # Create experiment directory with timestamp
     experiment_dir = os.path.join(args.output_dir, f"{exp_id}_{timestamp}")
@@ -360,7 +362,8 @@ def main():
         encoding=encoding,
         decoding=decoding,
         temperature=temperature,
-        top_p=top_p)
+        top_p=top_p,
+    )
     log_message(f"Binarized model loaded")
     
     # test parity check matrix on codeword
@@ -451,8 +454,8 @@ def main():
         output_tokens_path = os.path.join(tokens_dir, f"output_tokens.pkl")
         
         if not os.path.exists(output_tokens_path) or args.new:
-            log_message("Generating watermarked text per token")
-            output_tokens, output_text = binarized_model.watermarked_generate_by_token(prompt, num_tokens=n, debug=debug)
+            log_message(f"Generating watermarked text per token, greedy={greedy}")
+            output_tokens, output_text = binarized_model.watermarked_generate_by_token(prompt, num_tokens=n, greedy=greedy, debug=debug)
             
             # Save the tokens
             with open(output_tokens_path, 'wb') as f:
@@ -467,6 +470,7 @@ def main():
             save_plot_to_dir("bucket_0_distribution.png")
             save_plot_to_dir("bucket_1_distribution.png")
             save_plot_to_dir("entropy_distribution.png")
+            save_plot_to_dir("rejections_vs_index.png")
         else:
             with open(output_tokens_path, 'rb') as f:
                 output_tokens = pickle.load(f)
@@ -479,6 +483,8 @@ def main():
                     f.write(output_text)
                     
         log_message(f"Output text saved to {output_text_path}")
+        rejection_rate = binarized_model.rejection_count / len(output_tokens)
+        log_message(f"Rejection rate: {rejection_rate}")
 
         # detect watermark
         threshold, hamming_weight, result = detect_hamming_text_per_token(binarized_model, output_tokens)
@@ -489,6 +495,7 @@ def main():
         detection_results = {
             "threshold": float(threshold),
             "hamming_weight": float(hamming_weight),
+            "rejection_rate": float(rejection_rate),
             "detection_result": bool(result),
             "method": "token-level"
         }
