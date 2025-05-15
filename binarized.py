@@ -306,6 +306,8 @@ class BinarizedModel:
         ones_tensor = torch.ones(1, device=pushforward_probs.device)
         p = torch.min(ones_tensor, len(pushforward_probs) * pushforward_probs[x_j])
         if torch.bernoulli(p) == 1:
+            if debug:
+                self.rejections.append(False)
             return x_j
         else:
             q_i = pushforward_probs - 1/len(pushforward_probs)
@@ -319,7 +321,7 @@ class BinarizedModel:
                 self.rejections.append(True)
             return torch.multinomial(q_i, num_samples=1).item()
 
-    def watermarked_generate_by_token(self, prompt, num_tokens, top_p=None, debug=True):
+    def watermarked_generate_by_token(self, prompt, num_tokens, top_p=None, greedy=False, debug=True):
         """
         Generates text by hashing the vocabulary into two buckets, then sampling from the bucket indicated by the prc-bit.
         Only considers top-p tokens for hashing and sampling.
@@ -336,9 +338,12 @@ class BinarizedModel:
         top_p = top_p if top_p is not None else self.top_p
 
         input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
+        
+        # Create attention mask for proper KV cache handling
+        attention_mask = torch.ones_like(input_ids).to(self.device)
 
         with torch.no_grad():
-            outputs = self.original_model(input_ids=input_ids, use_cache=True)
+            outputs = self.original_model(input_ids=input_ids, attention_mask=attention_mask, use_cache=True)
             past_key_values = outputs.past_key_values
             logits = outputs.logits[0, -1, :]
             probs = torch.softmax(logits / self.temperature, dim=0)
@@ -352,7 +357,6 @@ class BinarizedModel:
 
         with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
             while len(output_tokens) < num_tokens:
-                # Select Top-p tokens
                 sorted_probs, sorted_indices = torch.sort(probs, descending=True)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
                 
@@ -395,6 +399,7 @@ class BinarizedModel:
                 
                 # check if the chosen bucket is empty
                 if torch.sum(bucket_probs_top_p) > 0:
+                    # Normalize
                     bucket_probs_top_p = bucket_probs_top_p / torch.sum(bucket_probs_top_p)
                 else:
                     if debug:
@@ -404,15 +409,15 @@ class BinarizedModel:
                     else:
                         assert False
 
-                # Greedily select the token with the highest probability in the bucket
-                sampled_relative_index = torch.argmax(bucket_probs_top_p).item()
+                # greedy
+                if greedy:
+                    sampled_relative_index = torch.argmax(bucket_probs_top_p).item()
+                else:
+                # multinomial
+                    sampled_relative_index = torch.multinomial(bucket_probs_top_p, num_samples=1).item()
                 
                 # Get the actual token_id
                 token_id = top_p_indices[sampled_relative_index].item()
-
-                # if eos, then skip
-                if token_id == self.tokenizer.eos_token_id:
-                    continue
 
                 output_tokens.append(token_id)
                 
@@ -449,6 +454,15 @@ class BinarizedModel:
             # rejection rate
             print(f"Rejection count: {self.rejection_count}")
             print(f"Rejection rate: {self.rejection_count / num_tokens}")
+
+            # plot rejections vs index
+            plt.figure(figsize=(8, 6))
+            plt.plot(self.rejections)
+            plt.title("Rejections vs index")
+            plt.xlabel("Index")
+            plt.ylabel("Rejection")
+            plt.savefig("rejections_vs_index.png")
+            plt.close()
             
             # Plot the distribution of bucket weights
             plt.figure(figsize=(8, 6))
@@ -476,4 +490,3 @@ class BinarizedModel:
 
         # Return the generated tokens and text
         return output_tokens, output_text
-            
