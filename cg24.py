@@ -17,8 +17,8 @@ import datetime
 import shutil
 from tqdm import tqdm
 
-from src.prc import Encode, Encode_No_OTP, Decode, KeyGen
-from huffman import huffman_encode, huffman_decode, build_huffman_tree, generate_huffman_codes
+from src.prc import KeyGen
+from huffman import huffman_encode
 
 from binarized import BinarizedModel
 
@@ -395,6 +395,8 @@ def main():
             # Move the file
             shutil.move(plot_path, new_path)
             return new_path
+        else:
+            print(f"Warning: Plot file {plot_path} not found, skipping")
         return None
 
     # Record experiment start time
@@ -455,7 +457,7 @@ def main():
         
         if not os.path.exists(output_tokens_path) or args.new:
             log_message(f"Generating watermarked text per token, greedy={greedy}")
-            output_tokens, output_text = binarized_model.watermarked_generate_by_token(prompt, num_tokens=n, greedy=greedy, debug=debug)
+            output_tokens, output_text, _, _, _, _, entropies = binarized_model.watermarked_generate_by_token(prompt, num_tokens=n, greedy=greedy, debug=debug)
             
             # Save the tokens
             with open(output_tokens_path, 'wb') as f:
@@ -467,10 +469,10 @@ def main():
                 f.write(output_text)
             
             # Move any generated plots to the plots directory
+            save_plot_to_dir("rejections_vs_index.png")
+            save_plot_to_dir("rejection_rate_vs_entropy.png")
             save_plot_to_dir("bucket_0_distribution.png")
             save_plot_to_dir("bucket_1_distribution.png")
-            save_plot_to_dir("entropy_distribution.png")
-            save_plot_to_dir("rejections_vs_index.png")
         else:
             with open(output_tokens_path, 'rb') as f:
                 output_tokens = pickle.load(f)
@@ -485,6 +487,17 @@ def main():
         log_message(f"Output text saved to {output_text_path}")
         rejection_rate = binarized_model.rejection_count / len(output_tokens)
         log_message(f"Rejection rate: {rejection_rate}")
+        average_entropy_among_rejected_tokens = np.mean(entropies[binarized_model.rejections])
+        log_message(f"Average entropy among rejected tokens: {average_entropy_among_rejected_tokens}")
+        average_entropy_among_accepted_tokens = np.mean(entropies[~np.array(binarized_model.rejections)])
+        log_message(f"Average entropy among accepted tokens: {average_entropy_among_accepted_tokens}")
+        average_entropy = np.mean(entropies)
+        log_message(f"Average entropy: {average_entropy}")
+
+        plt.figure(figsize=(10, 5))
+        plt.bar(['rejected', 'accepted'], [average_entropy_among_rejected_tokens, average_entropy_among_accepted_tokens])
+        plt.savefig(os.path.join(plots_dir, "average_entropy_among_rejected_and_accepted_tokens.png"))
+        plt.close()
 
         # detect watermark
         threshold, hamming_weight, result = detect_hamming_text_per_token(binarized_model, output_tokens)

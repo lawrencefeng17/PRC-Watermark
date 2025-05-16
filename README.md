@@ -1,13 +1,43 @@
+# PRC-Watermark
+
 Fork of Image Watermarking with PRC
 
-# What's in here?
+## What's in here?
 
 * attacks on image watermarking with PRC, testing robustness, similarity of latents after edits
 * we can scrub the PRC watermark on images by seeding a proxy diffusion model with the reversed latent of a watermarked image using the proxy diffusion model
+* Implementation of Watermarking Scheme for Language Models from "Pseudorandom Error-Correcting Codes" by Christ & Gunn 2024.
 
-* *In Progress in cg24.py:* Implementation of Watermarking Scheme for Language Models from "Pseudorandom Error-Correcting Codes" by CG24.
+## Repository Structure
+
+The repository has been organized into the following structure:
+
+* `src/` - Original PRC implementation for image watermarking
+* `watermark/` - New implementation of PRC watermarking for language models
+  * See [watermark README](watermark/README.md) for details on usage and implementation
+* `plots/` - Visualizations and plots from experiments
+* `attacks/` - Implementation of attacks on watermarking schemes
+
+## Running the Language Model Watermarking
+
+To run the text watermarking procedure, use the following command:
+
+```
+python run.py --n 2048 --prc_t 3 --temperature 1 --debug --new --top_p 0.95
+```
+
+This will watermark the text with a PRC code of length 2048. The parity check matrix is t-sparse, given by prc_t. The temperature is the temperature of the LLM. 
+
+Debug will enable the generation of graphs and other statistics. New will force the generation of a new piece of text (watermarked text can be saved and reused).
+
+Additional arguments:
+* `--prompt`: the prompt to watermark
+* `--bit`: Use bit-level watermarking instead of token-level
+* `--greedy`: Use greedy decoding
+* See the full list of options in `watermark/core/cg24.py`
 
 ## Reduction to the Binary Alphabet (CG24)
+
 Without loss of generality, let's consider language models over a binary alphabet. Here is the construction. Let $\mathcal{T}$ be the vocabulary of $\mathsf{Model}$. $\mathsf{Model}$ generates a probability vector $p \in [0,1]^{|\mathcal{T}|}$ . We want to construct a new $\mathsf{Model}'$ which outputs $p' \in [0,1]^2.$ 
 
 Let $\mathsf{Enc}$ be any prefix-free encoding. $\mathsf{Model}'$ will compute its distribution $\mathsf{p}'$ over the next binary token by querying $\mathsf{Model}$ for its distribution $\mathsf{p}$ over $\mathcal{T}$, and computing the distribution over the next bit of the binary encoding of the next token. 
@@ -22,22 +52,7 @@ $$\mathsf{p}'(0) = \sum\limits_{t \in \mathcal{T}, \mathsf{Enc}(t)[1:len(s) + 1]
 
 That is, take the SUM of (probabilities of tokens) whose encoding begins with the bits $s$ generated so far. 
 
-## Text Watermarking Using CG24
-
-To run the text watermarking procedure, use the following command:
-
-```
-python cg24.py --n 2048 --prc_t 3 --temperature 1 --debug --new --top_p 0.95
-```
-
-This will watermark the text with a PRC code of length 2048. The parity check matrix is t-sparse, given by prc_t. The temperature is the temperature of the LLM. 
-
-Debug will enable the generation of graphs and other statistics. New will force the generation of a new piece of text (watermarked text can be saved and reused).
-
-Additional arguments:
-* --prompt: the prompt to watermark.
-
-```
+## Implementation Details
 
 ### Issues
 
@@ -46,9 +61,9 @@ Additional arguments:
 * The rejection rate is too high, at around 40% when watermarking bit by bit.
 * Instead, we take inspiration from GM24 and use a bucket-based approach.
 * We hash the vocabulary into two buckets, then perform a biased sample in favor of the bucket indicated by the PRC-bit.
-* The problem is that most texted generated is not 2048 tokens.
+* The problem is that most text generated is not 2048 tokens.
 
 #### Practicalities of quality LLM generation
 
-* In practice, top-p or top-k sampling is used to avoid degenerate text. The current theretical approaches rely on sampling from the full token distribution, but this is not practical. While distribution preserving, it doesn't actually produce quality text.
+* In practice, top-p or top-k sampling is used to avoid degenerate text. The current theoretical approaches rely on sampling from the full token distribution, but this is not practical. While distribution preserving, it doesn't actually produce quality text.
 * I'm currently experimenting with thresholding the distribution in a top-p style, combining it with the bucket-based approach by GM24.
