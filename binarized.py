@@ -331,9 +331,21 @@ class BinarizedModel:
             num_tokens: The number of tokens to generate.
             top_p: The cumulative probability for top-p sampling. Defaults to self.top_p.
             debug: Whether to generate debug plots and statistics.
+            
+        Returns:
+            output_tokens: List of generated token ids
+            output_text: Generated text
+            pushforward_probs_seq: List of pushforward_probs for each token
+            prc_bits_used_seq: List of PRC bits used for each token
+            hashed_output_tokens_seq: List of hash values of output tokens
+            rejection_count: Number of rejections during generation
+            entropies_for_rejection_analysis: List of entropies for rejection analysis
         """
         output_tokens = []
         output_text = ""
+        pushforward_probs_seq = []
+        prc_bits_used_seq = []
+        hashed_output_tokens_seq = []
         
         top_p = top_p if top_p is not None else self.top_p
 
@@ -354,6 +366,8 @@ class BinarizedModel:
             num_top_p_tokens = []
             self.rejection_count = 0 # Initialize rejection_count for the generation run
             self.rejections = []
+        else:
+            self.rejection_count = 0 # Always init rejection_count even without debug mode
 
         with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
             while len(output_tokens) < num_tokens:
@@ -381,6 +395,12 @@ class BinarizedModel:
 
                 pushforward_probs = torch.zeros(2, device=self.device)
                 pushforward_probs.scatter_add_(0, index=current_hash_tensor, src=top_p_probs)
+                
+                # Store the PRC bit for this position
+                prc_bits_used_seq.append(x_i)
+                
+                # Store pushforward probs for each token generation
+                pushforward_probs_seq.append(pushforward_probs.cpu().numpy())
                 
                 if debug:
                     num_top_p_tokens.append(len(top_p_indices))
@@ -420,6 +440,10 @@ class BinarizedModel:
                 token_id = top_p_indices[sampled_relative_index].item()
 
                 output_tokens.append(token_id)
+                
+                # Store the hash of the generated token
+                token_hash = self.hash_function(token_id)
+                hashed_output_tokens_seq.append(token_hash)
                 
                 # Decode the token to text
                 decoded_str = self.tokenizer.decode([token_id])
@@ -464,6 +488,88 @@ class BinarizedModel:
             plt.savefig("rejections_vs_index.png")
             plt.close()
             
+            # Calculate binary entropy for each pushforward_probs
+            entropies_for_rejection_analysis = []
+            for probs_pair in pushforward_probs_seq:
+                p0 = probs_pair[0]
+                p1 = probs_pair[1]
+                entropy = 0
+                # Avoid log(0) issues; 0 * log(0) is 0
+                if p0 > 1e-9: # Using a small epsilon to avoid float precision issues with 0
+                    entropy -= p0 * np.log2(p0)
+                if p1 > 1e-9: # Using a small epsilon
+                    entropy -= p1 * np.log2(p1)
+                entropies_for_rejection_analysis.append(entropy)
+            
+            entropies_for_rejection_analysis = np.array(entropies_for_rejection_analysis)
+            rejections_array = np.array(self.rejections, dtype=float) # Convert booleans to float for mean
+
+            # Create entropy bins
+            num_bins = 20
+            # Max entropy for binary is 1.0. Min is 0.
+            bins = np.linspace(0, 1.0, num_bins + 1)
+            
+            # Ensure bins cover the full range, even if all entropies are e.g. 0 or 1
+            if entropies_for_rejection_analysis.size > 0:
+                min_entropy = np.min(entropies_for_rejection_analysis)
+                max_entropy = np.max(entropies_for_rejection_analysis)
+                # Adjust bins slightly to include min and max values if they are exactly on bin edges
+                # and to ensure all data is captured by digitize.
+                # Bins for np.digitize are (inclusive, exclusive] for right=False (default)
+                # or [inclusive, exclusive) for right=True.
+                # We want to include 0 and 1.
+                bins = np.linspace(min_entropy - 1e-9, max_entropy + 1e-9, num_bins + 1)
+                if min_entropy < 0: bins[0] = min_entropy -1e-9 # handle potential float inaccuracies
+                if max_entropy > 1: bins[-1] = max_entropy + 1e-9 # handle potential float inaccuracies
+                if bins[0] > 0 and min_entropy < bins[0]: bins[0] = min_entropy -1e-9
+                if bins[-1] < 1 and max_entropy > bins[-1]: bins[-1] = max_entropy + 1e-9
+
+            # Ensure bins are monotonically increasing if adjustments made them not so (edge case)
+            for i in range(len(bins) -1):
+                if bins[i+1] <= bins[i]:
+                    bins[i+1] = bins[i] + 1e-9 # ensure strictly increasing
+
+            # Handle case with no data or all data points having the same entropy
+            if entropies_for_rejection_analysis.size == 0:
+                print("No data for entropy vs rejection plot.")
+                rejection_rates_in_bins = np.zeros(num_bins)
+                bin_centers = np.zeros(num_bins)
+            elif np.all(entropies_for_rejection_analysis == entropies_for_rejection_analysis[0]):
+                 print("All entropy values are the same. Plotting a single point for entropy vs rejection.")
+                 rejection_rates_in_bins = np.array([np.mean(rejections_array) if rejections_array.size > 0 else 0])
+                 bin_centers = np.array([entropies_for_rejection_analysis[0]])
+            else:
+                # np.digitize returns 1-based indices.
+                binned_indices = np.digitize(entropies_for_rejection_analysis, bins, right=False)
+                
+                rejection_rates_in_bins = np.zeros(num_bins)
+                bin_centers = np.zeros(num_bins)
+                
+                for i in range(1, num_bins + 1): # Bins are 1-indexed by digitize
+                    mask = (binned_indices == i)
+                    if np.any(mask):
+                        rejection_rates_in_bins[i-1] = np.mean(rejections_array[mask])
+                    else:
+                        rejection_rates_in_bins[i-1] = np.nan # Use NaN if bin is empty
+                    bin_centers[i-1] = (bins[i-1] + bins[i]) / 2
+            
+            plt.figure(figsize=(10, 6))
+            # Filter out NaN values for plotting if some bins were empty
+            valid_indices = ~np.isnan(rejection_rates_in_bins)
+            if np.any(valid_indices):
+                plt.plot(bin_centers[valid_indices], rejection_rates_in_bins[valid_indices], marker='o', linestyle='-')
+            else: # Case where all bins might be NaN (e.g. very few data points)
+                print("Not enough distinct data points to plot entropy vs rejection rate across bins.")
+
+            plt.title("Rejection Rate vs. Bucket Entropy")
+            plt.xlabel("Binary Entropy of Bucket Probabilities (pushforward_probs)")
+            plt.ylabel("Average Rejection Rate")
+            plt.ylim(0, 1) # Rejection rate is between 0 and 1
+            plt.xlim(0, 1) # Entropy is between 0 and 1
+            plt.grid(True)
+            plt.savefig("rejection_rate_vs_entropy.png")
+            plt.close()
+
             # Plot the distribution of bucket weights
             plt.figure(figsize=(8, 6))
             plt.hist(weight_zero_bucket, bins=20, range=(0, 1))
@@ -488,5 +594,8 @@ class BinarizedModel:
             print(f"Frequency of bucket 1 being empty (weight = 0): {np.mean(np.array(weight_one_bucket) == 0.0):.4f}")
             print(f"Frequency of buckets being heavily imbalanced (weight > 0.95): {np.mean(np.logical_or(np.array(weight_zero_bucket) > 0.95, np.array(weight_one_bucket) > 0.95)):.4f}")
 
-        # Return the generated tokens and text
-        return output_tokens, output_text
+        if not debug:
+            entropies_for_rejection_analysis = None
+            
+        # Return the generated tokens, text, and metrics
+        return output_tokens, output_text, pushforward_probs_seq, prc_bits_used_seq, hashed_output_tokens_seq, self.rejection_count, entropies_for_rejection_analysis
