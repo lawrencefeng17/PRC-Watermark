@@ -1,0 +1,9 @@
+{
+  "threshold": 689.6885582087334,
+  "hamming_weight": 916.0,
+  "detection_result": false,
+  "generation_time": 769.552809715271,
+  "rejection_rate": 0.28173828125,
+  "match_rate": 0.71826171875,
+  "method": "independent_hash"
+}

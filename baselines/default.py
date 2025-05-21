@@ -7,7 +7,8 @@ def generate_text(model_id, prompt, top_p=0.9, temperature=1.0, max_new_tokens=1
     model = AutoModelForCausalLM.from_pretrained(
         model_id, 
         torch_dtype=torch.float16,
-        device_map="auto"
+        device_map="auto",
+        force_download=True
     )
     
     # Format the prompt properly for an instruction model

@@ -1,0 +1,36 @@
+Experiment ID: watermark_independent_hash_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.995_greedy_False
+Timestamp: 20250521_023752
+Parameters: {'model_id': 'meta-llama/Llama-3.2-1B-Instruct', 'prompt': 'Write a thrilling story about a murder investigation in an old mansion.', 'num_tokens': 2048, 'n': 2048, 'temperature': 1.0, 'top_p': 0.995, 'greedy': False, 'methods': 'independent_hash', 'experiment_id': None, 'output_dir': 'experiments', 'fpr': 1e-05, 'prc_t': 3, 'debug': True, 'new': True}
+Loading model...
+Model loaded on cuda
+Prompt: Write a thrilling story about a murder investigation in an old mansion.
+Setting up PRC keys for watermark_independent_hash_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.995_greedy_False
+PRC keys set up
+Saved key to experiments/watermark_independent_hash_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.995_greedy_False_20250521_023752/watermark_independent_hash_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.995_greedy_False_key.pkl
+Generation started at: 2025-05-21 02:37:55
+
+=== Running Independent Hash Watermarking ===
+Creating independent hash watermarking model
+Generating watermarked text (independent hash method)
+Independent hash generation completed in 64.34 seconds
+Generated 2048 tokens
+Rejection rate: 0.1313
+Match rate: 0.8687
+Output text saved to experiments/watermark_independent_hash_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.995_greedy_False_20250521_023752/text/independent_hash_output.txt
+Average entropy for accepted tokens: 0.8834
+Average entropy for rejected tokens: 0.3985
+Detecting watermark...
+Threshold: 689.6885582087334, Hamming weight: 999.0
+Detection result: False
+Experiment completed at: 2025-05-21 02:39:02
+Total duration: 0:01:06.709258
+
+=== Experiment Summary ===
+
+INDEPENDENT_HASH Watermarking:
+  Watermark detected: False
+  Hamming weight: 999.0 (threshold: 689.6885582087334)
+  Rejection rate: 0.1313
+  Match rate: 0.8687
+
+Results saved to: experiments/watermark_independent_hash_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.995_greedy_False_20250521_023752

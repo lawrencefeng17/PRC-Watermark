@@ -1,3 +1,9 @@
+analyze_spatial_errors.py
+measure_prc_error.py
+parameter_sweep.py
+README_error_analysis.md
+error_analysis/
+
 tensors/
 results/
 testing_tensors/

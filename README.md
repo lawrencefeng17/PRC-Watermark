@@ -4,37 +4,37 @@ Fork of Image Watermarking with PRC
 
 ## What's in here?
 
+* Implementation of Watermarking Scheme for Language Models from "Pseudorandom Error-Correcting Codes" by Christ & Gunn 2024.
+  * This includes their proposed binarization method.
+  * This includes a bucketing method proposed by Golowich & Moitra "Edit-Distance Robust Watermarks for Language Models"
+
 * attacks on image watermarking with PRC, testing robustness, similarity of latents after edits
 * we can scrub the PRC watermark on images by seeding a proxy diffusion model with the reversed latent of a watermarked image using the proxy diffusion model
-* Implementation of Watermarking Scheme for Language Models from "Pseudorandom Error-Correcting Codes" by Christ & Gunn 2024.
 
 ## Repository Structure
 
 The repository has been organized into the following structure:
 
 * `src/` - Original PRC implementation for image watermarking
-* `watermark/` - New implementation of PRC watermarking for language models
-  * See [watermark README](watermark/README.md) for details on usage and implementation
+* `watermarking/` - New implementation of PRC watermarking for language models
+  * See [watermark README](watermarking/README.md) for details on usage and implementation
+  * `watermarking/experiments/` - Experiments on language model watermarking
+* `experiments/` - Experiments on language model watermarking
 * `plots/` - Visualizations and plots from experiments
 * `attacks/` - Implementation of attacks on watermarking schemes
+* `baselines/` - Implementation of baselines for language model generation
 
 ## Running the Language Model Watermarking
 
 To run the text watermarking procedure, use the following command:
 
 ```
-python run.py --n 2048 --prc_t 3 --temperature 1 --debug --new --top_p 0.95
+python watermarking/run_watermarking.py --model_id "meta-llama/Llama-3.2-1B-Instruct" --n 2048 --prc_t 3 --temperature 1 --debug --new --top_p 0.995
 ```
 
 This will watermark the text with a PRC code of length 2048. The parity check matrix is t-sparse, given by prc_t. The temperature is the temperature of the LLM. 
 
 Debug will enable the generation of graphs and other statistics. New will force the generation of a new piece of text (watermarked text can be saved and reused).
-
-Additional arguments:
-* `--prompt`: the prompt to watermark
-* `--bit`: Use bit-level watermarking instead of token-level
-* `--greedy`: Use greedy decoding
-* See the full list of options in `watermark/core/cg24.py`
 
 ## Reduction to the Binary Alphabet (CG24)
 
