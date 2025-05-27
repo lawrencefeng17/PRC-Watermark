@@ -30,6 +30,7 @@ from pathlib import Path
 # Add parent directory to path to allow imports from src
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.prc import KeyGen
+from huffman import huffman_encode
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
@@ -61,6 +62,7 @@ def setup(exp_id, n, message_length, fpr, prc_t):
 def main():
     parser = argparse.ArgumentParser(description="Run different watermarking methods")
     parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Model ID from HuggingFace")
+    # parser.add_argument("--model_id", type=str, default="google/gemma-3-1b-pt", help="Model ID from HuggingFace")
     parser.add_argument("--prompt", type=str, default="Write a thrilling story about a murder investigation in an old mansion.", help="Prompt for text generation")
     parser.add_argument("--num_tokens", type=int, default=2**11, help="Number of tokens to generate")
     parser.add_argument("--n", type=int, default=2**11, help="Length of the PRC codeword")
@@ -115,17 +117,61 @@ def main():
     # Load model and tokenizer
     log_message("Loading model...")
     tokenizer = AutoTokenizer.from_pretrained(args.model_id)
-    model = AutoModelForCausalLM.from_pretrained(args.model_id, torch_dtype=torch.float16, device_map="auto")
+    model = AutoModelForCausalLM.from_pretrained(args.model_id, device_map="auto")
     
     # Handle padding token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     
     log_message(f"Model loaded on {torch.device('cuda' if torch.cuda.is_available() else 'cpu')}")
-    
-    # Log the prompt
+   
     log_message(f"Prompt: {args.prompt}")
-    
+    # Format prompt using chat template
+    if "meta-llama" in args.model_id:
+        if "Instruct" in args.model_id:
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant."
+                },
+                {
+                    "role": "user",
+                    "content": args.prompt
+                }
+            ]
+            inputs = tokenizer.apply_chat_template(
+                messages, 
+                add_generation_prompt=True,
+                tokenize=True,
+                return_tensors='pt'
+            ).to(model.device)
+        else:
+            inputs = tokenizer(args.prompt, return_tensors="pt")['input_ids'].to(model.device)
+    elif "gemma-3" in args.model_id:
+        if "it" in args.model_id:
+            messages = [
+                [
+                    {
+                        "role": "system",
+                        "content": [{"type": "text", "text": "You are a helpful assistant."},]
+                    },
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": args.prompt}]
+                    },
+                ],
+            ]
+            inputs = tokenizer.apply_chat_template(
+                messages,
+                add_generation_prompt=True,
+                tokenize=True,
+                return_tensors="pt",
+            ).to(model.device)
+        else:
+            inputs = tokenizer(args.prompt, return_tensors="pt")['input_ids'].to(model.device)
+    else:
+        inputs = tokenizer(args.prompt, return_tensors="pt")['input_ids'].to(model.device)
+
     # Get the encoding key
     log_message(f"Setting up PRC keys for {exp_id}")
     message_length = 0
@@ -239,7 +285,7 @@ def main():
             log_message(f"Generating watermarked text (binary method)")
             start_time_binary = time.time()
             output_tokens, output_text, binary_tokens = binary_model.watermarked_generate(
-                args.prompt, 
+                inputs, 
                 args.n,  # Generate n bits
                 debug=args.debug
             )
@@ -321,8 +367,8 @@ def main():
             # Generate watermarked text
             log_message(f"Generating watermarked text (token method)")
             start_time_token = time.time()
-            token_output_tokens, token_output_text, pushforward_probs, prc_bits, hashed_tokens, rejection_count, entropies = token_model.watermarked_generate_by_token(
-                args.prompt, 
+            token_output_tokens, token_output_text, pushforward_probs, prc_bits, hashed_tokens, rejection_count, entropies = token_model.watermarked_generate(
+                inputs, 
                 args.num_tokens,
                 top_p=args.top_p,
                 greedy=args.greedy,
@@ -438,8 +484,8 @@ def main():
             # Generate watermarked text
             log_message(f"Generating watermarked text (independent hash method)")
             start_time_hash = time.time()
-            hash_output_tokens, hash_output_text, pushforward_probs, prc_bits, hashed_tokens, position_hash_tensors, rejection_count, entropies = hash_model.watermarked_generate_by_token(
-                args.prompt, 
+            hash_output_tokens, hash_output_text, pushforward_probs, prc_bits, hashed_tokens, position_hash_tensors, rejection_count, entropies = hash_model.watermarked_generate(
+                inputs, 
                 args.num_tokens,
                 top_p=args.top_p,
                 greedy=args.greedy,
@@ -536,7 +582,7 @@ def main():
                 hash_output_tokens, position_hash_tensors = pickle.load(f)
                 hash_output_text = tokenizer.decode(hash_output_tokens)
                 # Move tensors back to the device if needed
-                position_hash_tensors = {pos: tensor.to(device) for pos, tensor in position_hash_tensors.items()}
+                position_hash_tensors = {pos: tensor.to(model.device) for pos, tensor in position_hash_tensors.items()}
                 
             # Load detection results if they exist
             detection_path = os.path.join(experiment_dir, "independent_hash_detection_results.json")

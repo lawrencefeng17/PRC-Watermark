@@ -3,6 +3,7 @@ measure_prc_error.py
 parameter_sweep.py
 README_error_analysis.md
 error_analysis/
+experiments/*
 
 tensors/
 results/

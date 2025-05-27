@@ -7,6 +7,7 @@ watermark bits by hashing the vocabulary into buckets.
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 from tqdm import tqdm
 
@@ -29,6 +30,7 @@ class TokenWatermarkModel:
         self.original_model = original_model
         self.tokenizer = tokenizer
         self.device = next(original_model.parameters()).device
+        self.dtype = next(original_model.parameters()).dtype
         self.encoding_key = encoding_key
         self.decoding_key = decoding_key
         X_pm1 = Encode(encoding_key)
@@ -78,13 +80,13 @@ class TokenWatermarkModel:
                 self.rejections.append(True)
             return torch.multinomial(q_i, num_samples=1).item()
 
-    def watermarked_generate_by_token(self, prompt, num_tokens, top_p=None, greedy=False, debug=True):
+    def watermarked_generate(self, input_ids, num_tokens, top_p=None, greedy=False, debug=True):
         """
         Generates text by hashing the vocabulary into two buckets, then sampling from the bucket indicated by the prc-bit.
         Only considers top-p tokens for hashing and sampling.
 
         Args:
-            prompt: The initial prompt for generation.
+            input_ids: The initial input_ids for generation.
             num_tokens: The number of tokens to generate.
             top_p: The cumulative probability for top-p sampling. Defaults to self.top_p.
             debug: Whether to generate debug plots and statistics.
@@ -99,23 +101,21 @@ class TokenWatermarkModel:
             entropies_for_rejection_analysis: List of entropies for rejection analysis
         """
         output_tokens = []
-        output_text = ""
         pushforward_probs_seq = []
         prc_bits_used_seq = []
         hashed_output_tokens_seq = []
         
         top_p = top_p if top_p is not None else self.top_p
 
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
-        
-        # Create attention mask for proper KV cache handling
+        # Initialize attention mask
         attention_mask = torch.ones_like(input_ids).to(self.device)
-
-        with torch.no_grad():
-            outputs = self.original_model(input_ids=input_ids, attention_mask=attention_mask, use_cache=True)
-            past_key_values = outputs.past_key_values
-            logits = outputs.logits[0, -1, :]
-            probs = torch.softmax(logits / self.temperature, dim=0)
+        
+        # Get model configuration
+        config = self.original_model.config
+        max_position_embeddings = getattr(config, 'max_position_embeddings', None)
+        if max_position_embeddings and input_ids.shape[1] > max_position_embeddings:
+            input_ids = input_ids[:, -max_position_embeddings:]
+            attention_mask = attention_mask[:, -max_position_embeddings:]
 
         if debug:
             weight_zero_bucket = []
@@ -128,7 +128,18 @@ class TokenWatermarkModel:
 
         with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
             while len(output_tokens) < num_tokens:
-                sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+                # Forward pass with proper attention mask
+                with torch.no_grad():
+                    outputs = self.original_model(
+                        input_ids=input_ids,
+                        attention_mask=attention_mask,
+                        use_cache=True,
+                        return_dict=True
+                    )
+                    logits = outputs.logits[:, -1, :]
+                    probs = torch.softmax(logits / self.temperature, dim=-1)
+
+                sorted_probs, sorted_indices = torch.sort(probs[0], descending=True)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
                 
                 top_p_mask = cumulative_probs < top_p
@@ -181,12 +192,7 @@ class TokenWatermarkModel:
                     # Normalize
                     bucket_probs_top_p = bucket_probs_top_p / torch.sum(bucket_probs_top_p)
                 else:
-                    if debug:
-                        print(f"Warning: Bucket {y_i} was empty after top-p filtering. Sampling from all top-p tokens.")
-                    if torch.sum(top_p_probs) > 0: # Ensure top_p_probs itself is not all zeros
-                         bucket_probs_top_p = top_p_probs 
-                    else:
-                        assert False
+                    assert False
 
                 # greedy
                 if greedy:
@@ -198,28 +204,17 @@ class TokenWatermarkModel:
                 # Get the actual token_id
                 token_id = top_p_indices[sampled_relative_index].item()
 
-                output_tokens.append(token_id)
-                
                 # Store the hash of the generated token
                 token_hash = self.hash_function(token_id)
                 hashed_output_tokens_seq.append(token_hash)
                 
-                # Decode the token to text
-                decoded_str = self.tokenizer.decode([token_id])
-                output_text += decoded_str
-
                 # generate next token
                 next_token_tensor = torch.tensor([[token_id]], device=self.device)
-                with torch.no_grad():
-                    outputs = self.original_model(
-                        input_ids=next_token_tensor,
-                        past_key_values=past_key_values,
-                        use_cache=True
-                    )
-                    past_key_values = outputs.past_key_values
-                    
-                    logits = outputs.logits[0, -1, :]
-                    probs = torch.softmax(logits / self.temperature, dim=0) # Update probs for the next iteration
+                input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
+                attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_tensor)], dim=1)
+                
+                # Store the generated token
+                output_tokens.append(token_id)
                 
                 # update PRC index
                 self.prc_index += 1
@@ -369,4 +364,5 @@ class TokenWatermarkModel:
             entropies_for_rejection_analysis = None
             
         # Return the generated tokens, text, and metrics
+        output_text = self.tokenizer.decode(output_tokens)
         return output_tokens, output_text, pushforward_probs_seq, prc_bits_used_seq, hashed_output_tokens_seq, self.rejection_count, entropies_for_rejection_analysis 

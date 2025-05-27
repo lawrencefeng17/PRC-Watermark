@@ -115,14 +115,14 @@ class IndependentHashModel:
                 self.rejections.append(True)
             return torch.multinomial(q_i, num_samples=1).item()
 
-    def watermarked_generate_by_token(self, prompt, num_tokens, top_p=None, greedy=False, debug=True):
+    def watermarked_generate(self, input_ids, num_tokens, top_p=None, greedy=False, debug=True):
         """
         Generates text by hashing the vocabulary into two buckets using position-dependent hash functions,
         then sampling from the bucket indicated by the prc-bit.
         Only considers top-p tokens for hashing and sampling.
 
         Args:
-            prompt: The initial prompt for generation.
+            input_ids: The initial input_ids for generation.
             num_tokens: The number of tokens to generate.
             top_p: The cumulative probability for top-p sampling. Defaults to self.top_p.
             debug: Whether to generate debug plots and statistics.
@@ -145,8 +145,6 @@ class IndependentHashModel:
         
         top_p = top_p if top_p is not None else self.top_p
 
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
-        
         # Create attention mask for proper KV cache handling
         attention_mask = torch.ones_like(input_ids).to(self.device)
 

@@ -44,7 +44,7 @@ class BinaryWatermarkModel:
         assert frequencies is not None or (encoding is not None and decoding is not None)
 
         if frequencies is not None:
-            from huffman import huffman_encode
+            from watermarking.huffman import huffman_encode
             self.encoding = huffman_encode(frequencies)
             self.decoding = {code: token_id for token_id, code in self.encoding.items()}
         else:
@@ -140,7 +140,7 @@ class BinaryWatermarkModel:
             # t_i <- Ber(1 - 2(1 - x_i)(1 - hat_p_i))
             return np.random.binomial(1, 1 - 2 * (1 - x_i) * (1 - hat_p_i))
 
-    def watermarked_generate(self, prompt, num_bits, debug=True):
+    def watermarked_generate(self, input_ids, num_bits, debug=True):
         """
         Generates text using the watermarked, binarized model.
         
@@ -148,7 +148,7 @@ class BinaryWatermarkModel:
         of the text. 
         
         Args:
-            prompt: The initial prompt for generation
+            input_ids: The initial input_ids for generation
             num_bits: The number of binary bits to generate
             debug: Whether to generate debug plots and statistics (default True for backward compatibility)
         
@@ -159,9 +159,6 @@ class BinaryWatermarkModel:
         binary_tokens = []
         output_tokens = []
         output_text = ""
-
-        # Encode the prompt and prepare for generation
-        input_ids = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
 
         # Store the hat_p_i values for debugging
         hat_p_i_values = [] if debug else None
