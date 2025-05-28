@@ -66,4 +66,21 @@ That is, take the SUM of (probabilities of tokens) whose encoding begins with th
 #### Practicalities of quality LLM generation
 
 * In practice, top-p or top-k sampling is used to avoid degenerate text. The current theoretical approaches rely on sampling from the full token distribution, but this is not practical. While distribution preserving, it doesn't actually produce quality text.
-* I'm currently experimenting with thresholding the distribution in a top-p style, combining it with the bucket-based approach by GM24.
+* I've implemented and tested sampling from the distribution in a top-p style, combining it with the bucket-based approach by GM24. First, tokens are removed from consideration as donein top-p sampling. Then the remaining tokens are hashed into buckets.
+
+### Results of Implementatoin
+
+* Gemma-3-1b-it
+* 3 categories of prompts (coding, story generation, and book report)
+* t=3, n=1024, top-p=[0.995, 0.99, 0.98, 0.95, 0.9]
+* 10 generations per setting (averaged)
+* All text produced was coherent.
+
+![Hamming Weight](/substitution_rate_experiments/hamming_weight_threshold_comparison.png) 
+ 
+![Rejection Rate](/substitution_rate_experiments/rejection_rate_vs_top_p_boxplot.png)
+
+![Entropy vs Rejection Rate](/substitution_rate_experiments/entropy_vs_rejection_scatter.png)
+
+The subsituttion rate needed to make this scheme practical is high, around 40%.
+
