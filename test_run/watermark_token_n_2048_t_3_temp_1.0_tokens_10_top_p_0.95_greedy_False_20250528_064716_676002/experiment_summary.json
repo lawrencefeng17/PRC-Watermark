@@ -1,0 +1,57 @@
+{
+  "experiment_id": "watermark_token_n_2048_t_3_temp_1.0_tokens_10_top_p_0.95_greedy_False",
+  "timestamp": "20250528_064716_676002",
+  "start_time": "2025-05-28 06:47:21",
+  "end_time": "2025-05-28 06:47:23",
+  "duration_seconds": 1.786385,
+  "parameters": {
+    "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+    "prompt": "Test prompt",
+    "num_tokens": 10,
+    "n": 2048,
+    "temperature": 1.0,
+    "top_p": 0.95,
+    "greedy": false,
+    "methods": "token",
+    "experiment_id": null,
+    "output_dir": "test_run",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": false,
+    "new": false
+  },
+  "results": {
+    "config": {
+      "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+      "prompt": "Test prompt",
+      "num_tokens": 10,
+      "n": 2048,
+      "temperature": 1.0,
+      "top_p": 0.95,
+      "greedy": false,
+      "methods": "token",
+      "experiment_id": null,
+      "output_dir": "test_run",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": false,
+      "new": false
+    },
+    "methods": {
+      "token": {
+        "threshold": 689.6885582087334,
+        "hamming_weight": 1001.0,
+        "detection_result": false,
+        "generation_time": 1.7702717781066895,
+        "rejection_rate": 0.0,
+        "match_rate": 0.9,
+        "method": "token",
+        "average_pushforward_entropy": 0.6462328433990479,
+        "std_dev_pushforward_entropy": 0.4357081651687622
+      }
+    }
+  },
+  "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+  "device": "cuda",
+  "prompt": "Test prompt"
+}

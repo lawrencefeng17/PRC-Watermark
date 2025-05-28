@@ -1,7 +1,0 @@
-{
-  "threshold": 689.6885582087334,
-  "hamming_weight": 997.0,
-  "rejection_rate": 0.4423828125,
-  "detection_result": false,
-  "method": "token-level"
-}

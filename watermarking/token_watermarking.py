@@ -228,6 +228,21 @@ class TokenWatermarkModel:
                 if debug:
                     pbar.update(1)
                 
+        # Calculate binary entropy for each pushforward_probs, regardless of debug status
+        entropies_for_rejection_analysis = []
+        for probs_pair in pushforward_probs_seq:
+            p0 = probs_pair[0]
+            p1 = probs_pair[1]
+            entropy = 0
+            # Avoid log(0) issues; 0 * log(0) is 0
+            if p0 > 1e-9: # Using a small epsilon to avoid float precision issues with 0
+                entropy -= p0 * np.log2(p0)
+            if p1 > 1e-9: # Using a small epsilon
+                entropy -= p1 * np.log2(p1)
+            entropies_for_rejection_analysis.append(entropy)
+        
+        entropies_for_rejection_analysis = np.array(entropies_for_rejection_analysis)
+
         if debug:
             # rejection rate
             print(f"Rejection count: {self.rejection_count}")
@@ -359,9 +374,6 @@ class TokenWatermarkModel:
             print(f"Frequency of bucket 0 being empty (weight = 0): {np.mean(np.array(weight_zero_bucket) == 0.0):.4f}")
             print(f"Frequency of bucket 1 being empty (weight = 0): {np.mean(np.array(weight_one_bucket) == 0.0):.4f}")
             print(f"Frequency of buckets being heavily imbalanced (weight > 0.95): {np.mean(np.logical_or(np.array(weight_zero_bucket) > 0.95, np.array(weight_one_bucket) > 0.95)):.4f}")
-
-        if not debug:
-            entropies_for_rejection_analysis = None
             
         # Return the generated tokens, text, and metrics
         output_text = self.tokenizer.decode(output_tokens)

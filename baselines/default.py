@@ -46,7 +46,7 @@ def generate_text(model_id, prompt, top_p=0.9, temperature=1.0, max_new_tokens=1
 
 # Example usage
 text = generate_text(
-    model_id="meta-llama/Llama-3.2-1B-Instruct",
+    model_id="google/gemma-3-1b-it",
     prompt="Tell me a story about a wizard.",
     top_p=0.995,  # Your high top_p value
     temperature=1.0

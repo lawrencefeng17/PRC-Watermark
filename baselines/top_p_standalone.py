@@ -4,109 +4,89 @@ import argparse
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from tqdm import tqdm
 
-def generate_top_p_from_binarized_logic(model, tokenizer, prompt, top_p=0.9, temperature=1.0, max_tokens=200, continue_from=None):
+def generate(model, tokenizer, prompt, top_p=0.9, temperature=1.0, max_tokens=200, continue_from=None):
     """
-    Generates text using top-p sampling logic adapted from binarized.py,
-    without any watermarking components.
-    
-    Args:
-        continue_from (str, optional): If provided, this text will be treated as the initial 
-                                     generation that should be continued.
+    Top-p sampling with manual key/value cache reuse, explicit position_ids,
+    and a guard against exceeding max_position_embeddings.
     """
     device = model.device
-    
-    # Handle continuation by combining prompt and continue_from
-    if continue_from is not None:
-        full_prompt = prompt + " " + continue_from
-    else:
-        full_prompt = prompt
-    
-    # Initial encoding
+
+    # Build full prompt (incl. any continuation)
+    full_prompt = prompt + (f" {continue_from}" if continue_from else "")
     input_ids = tokenizer.encode(full_prompt, return_tensors="pt").to(device)
-    
-    # Get model configuration
-    config = model.config
-    max_position_embeddings = getattr(config, 'max_position_embeddings', None)
-    if max_position_embeddings and input_ids.shape[1] > max_position_embeddings:
-        print(f"Truncating input_ids to {max_position_embeddings} tokens")
-        input_ids = input_ids[:, -max_position_embeddings:]
-
-    
-    # Initialize generation config
     attention_mask = torch.ones_like(input_ids)
-    
-    # For storing generated tokens
-    all_tokens = input_ids[0].tolist()
 
+    # Truncate to model max length if needed
+    max_pos = getattr(model.config, "max_position_embeddings", None)
+    if max_pos and input_ids.size(1) > max_pos:
+        input_ids = input_ids[:, -max_pos:]
+        attention_mask = torch.ones_like(input_ids)
+
+    # Track total tokens so far
+    total_len = input_ids.size(1)
+    all_tokens = input_ids[0].tolist()
     past_key_values = None
 
-    with tqdm(total=max_tokens, desc="Generating tokens (standalone top-p)") as pbar:
+    with tqdm(total=max_tokens, desc="Generating tokens (manual cache)") as pbar:
         for _ in range(max_tokens):
-            # Forward pass with proper attention mask
+            # Guard: if we would exceed max_pos, stop generation
+            if max_pos and total_len >= max_pos:
+                print(f"\nReached max_position_embeddings ({max_pos}); stopping early.")
+                break
+
+            # Prepare inputs for this step
+            if past_key_values is None:
+                step_input_ids      = input_ids
+                step_attention_mask = attention_mask
+                position_ids        = None
+            else:
+                # only the last token + correct position_ids
+                step_input_ids      = torch.tensor([[all_tokens[-1]]], device=device)
+                step_attention_mask = torch.ones_like(step_input_ids)
+                position_ids        = torch.arange(
+                                         total_len - 1, total_len,
+                                         dtype=torch.long,
+                                         device=device
+                                      ).unsqueeze(0)
+
+            # Forward
             with torch.no_grad():
                 outputs = model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
+                    input_ids=step_input_ids,
+                    attention_mask=step_attention_mask,
+                    position_ids=position_ids,
                     past_key_values=past_key_values,
                     use_cache=True,
-                    return_dict=True
+                    return_dict=True,
                 )
-                
-                next_token_logits = outputs.logits[:, -1, :]
-                
-                # Apply temperature
-                next_token_logits = next_token_logits / temperature
-                
-                # Apply softmax to get probabilities
-                probs = F.softmax(next_token_logits, dim=-1)
-                
-                # Get vocabulary size from the model config
-                vocab_size = model.config.vocab_size
-                current_probs = probs[0, :vocab_size]
-                
-                # Sort probabilities in descending order
-                sorted_probs, sorted_indices = torch.sort(current_probs, descending=True)
-                cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-                
-                # Apply nucleus sampling
-                nucleus_mask = cumulative_probs <= top_p
-                if nucleus_mask.sum() < len(sorted_probs):
-                    nucleus_mask[nucleus_mask.sum()] = True
-                
-                # Get the allowed tokens and their probabilities
-                allowed_tokens = sorted_indices[nucleus_mask]
-                allowed_probs = sorted_probs[nucleus_mask]
-                
-                # Normalize probabilities
-                allowed_probs = allowed_probs / allowed_probs.sum()
-                
-                # Sample token
-                try:
-                    idx = torch.multinomial(allowed_probs, num_samples=1)
-                    next_token = allowed_tokens[idx].item()
-                except RuntimeError:
-                    # Fallback to most likely token if sampling fails
-                    next_token = allowed_tokens[0].item()
-                
-                # Break if we generate an EOS token
-                if next_token == tokenizer.eos_token_id:
-                    break
-                
-                # Update input_ids and attention_mask for next iteration
-                next_token_tensor = torch.tensor([[next_token]], device=device)
-                input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
-                attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_tensor)], dim=1)
-                
-                # Store the generated token
-                all_tokens.append(next_token)
-                pbar.update(1)
-    
-    # Get only the newly generated tokens
-    # generated_tokens = all_tokens[len(prompt):]
-    generated_text = tokenizer.decode(all_tokens, skip_special_tokens=True)
-    
-    return generated_text, all_tokens
+                logits = outputs.logits[:, -1, :] / temperature
+                past_key_values = outputs.past_key_values
 
+            # Top-p sampling
+            probs = F.softmax(logits, dim=-1)[0]
+            sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+            cum_probs = torch.cumsum(sorted_probs, dim=-1)
+            mask = cum_probs <= top_p
+            if mask.sum() < sorted_probs.size(0):
+                mask[mask.sum()] = True
+            candidates = sorted_idx[mask]
+            candidate_probs = sorted_probs[mask] / sorted_probs[mask].sum()
+            try:
+                pick = torch.multinomial(candidate_probs, 1).item()
+            except RuntimeError:
+                pick = candidates[0].item()
+
+            # Stop on EOS
+            if pick == tokenizer.eos_token_id:
+                break
+
+            # Append and advance
+            all_tokens.append(pick)
+            total_len += 1
+            pbar.update(1)
+
+    text = tokenizer.decode(all_tokens, skip_special_tokens=True)
+    return text, all_tokens
 
 def main():
     parser = argparse.ArgumentParser(description='Standalone Top-P Sampling Test')
@@ -114,10 +94,10 @@ def main():
     parser.add_argument('--continue_from', type=str, default=None, help='Text to continue from. Will be appended to the prompt before generation.')
     parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B-Instruct')
     parser.add_argument('--temperature', type=float, default=1.0) 
-    parser.add_argument('--top_p', type=float, default=0.995)
-    parser.add_argument('--max_tokens', type=int, default=128)
-    parser.add_argument('--apply_chat_template', action='store_true', help="Apply Llama-3 Instruct chat template to the prompt.")
+    parser.add_argument('--top_p', type=float, default=0.9)
+    parser.add_argument('--max_tokens', type=int, default=256)
     parser.add_argument('--continue_from_file', type=str, default=None, help='File to continue from. Will be appended to the prompt before generation.')
+    parser.add_argument('--output_file', type=str, default=None, help='File to save the generated text.')
 
     args = parser.parse_args()
     
@@ -136,20 +116,23 @@ def main():
     print(f"Model loaded on {device}")
 
     current_prompt = args.prompt
-    if args.apply_chat_template and "Instruct" in args.model_id:
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant."
-            },
-            {
-                "role": "user",
-                "content": args.prompt
-            }
-        ]
-        current_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        print(f"Applied chat template. New prompt: {current_prompt}")
-    if "gemma-3" in args.model_id:
+    if "meta-llama" in args.model_id:
+        if "Instruct" in args.model_id:
+            messages = [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant."
+                },
+                {
+                    "role": "user",
+                    "content": args.prompt
+                }
+            ]
+            current_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            print(f"Applied chat template. New prompt: {current_prompt}")
+        else:
+            current_prompt = args.prompt
+    elif "gemma-3" in args.model_id:
         if "it" in args.model_id:
             messages = [
                 [
@@ -168,6 +151,11 @@ def main():
                 add_generation_prompt=True,
                 tokenize=False,
             )[0]
+        else:
+            current_prompt = args.prompt
+    else:
+        current_prompt = args.prompt
+
     print(f"\\nPrompt: {current_prompt}")
     print(f"Generating with top_p={args.top_p}, temperature={args.temperature}, max_tokens={args.max_tokens}...")
     
@@ -177,7 +165,7 @@ def main():
     else:
         continue_from = None
 
-    generated_text, generated_token_ids = generate_top_p_from_binarized_logic(
+    generated_text, generated_token_ids = generate(
         model=model,
         tokenizer=tokenizer,
         prompt=current_prompt,
@@ -190,6 +178,11 @@ def main():
     print("\\n--- Generated Text ---")
     print(generated_text)
     print(f"\\nNumber of tokens generated: {len(generated_token_ids)}")
+
+    if args.output_file:
+        with open(args.output_file, 'w') as f:
+            f.write(generated_text)
+        print(f"Generated text saved to {args.output_file}")
 
 if __name__ == "__main__":
     main() 

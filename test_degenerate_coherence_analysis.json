@@ -1,0 +1,6 @@
+{
+  "is_fully_coherent": false,
+  "breakdown_point": "[sentence of substring where incoherence begins, or \"None\" if fully coherent]",
+  "explanation": "[brief explanation of why this marks the breakdown point]\nmodel\nCOHERENT: false\nBREAKDOWN_POINT: \u201cAsdf jkl; qwerty uiop zxcv bnm, 123 456 789 !@# $%^ &*( )_+ QWER TYUI OPAS DFGH JKLZ XCVB NM<> ? \u201d\nEXPLANATION: This section of the text abruptly shifts to nonsensical gibberish, indicating a complete loss of logical flow and coherence.",
+  "num_coherent_tokens": 234
+}

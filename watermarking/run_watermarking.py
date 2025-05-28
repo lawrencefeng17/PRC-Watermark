@@ -82,7 +82,7 @@ def main():
     args = parser.parse_args()
     
     # Generate timestamp for this run
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     
     # Setup experiment ID
     method_name = args.methods if args.methods != "all" else "combined"
@@ -122,6 +122,11 @@ def main():
     # Handle padding token
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    
+    # Attempt to clear cache after model loading
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+        log_message("Cleared CUDA cache after model loading.")
     
     log_message(f"Model loaded on {torch.device('cuda' if torch.cuda.is_available() else 'cpu')}")
    
@@ -431,6 +436,14 @@ def main():
             log_message(f"Detection result: {result}")
             
             # Save detection results
+            average_pushforward_entropy = None
+            std_dev_pushforward_entropy = None
+            if entropies is not None and len(entropies) > 0:
+                average_pushforward_entropy = np.mean(entropies)
+                std_dev_pushforward_entropy = np.std(entropies)
+                log_message(f"Average pushforward entropy: {average_pushforward_entropy:.4f}")
+                log_message(f"Std dev pushforward entropy: {std_dev_pushforward_entropy:.4f}")
+
             detection_path = os.path.join(experiment_dir, "token_detection_results.json")
             detection_results = {
                 "threshold": float(threshold),
@@ -439,7 +452,9 @@ def main():
                 "generation_time": generation_time,
                 "rejection_rate": rejection_rate,
                 "match_rate": match_rate,
-                "method": "token"
+                "method": "token",
+                "average_pushforward_entropy": float(average_pushforward_entropy) if average_pushforward_entropy is not None else None,
+                "std_dev_pushforward_entropy": float(std_dev_pushforward_entropy) if std_dev_pushforward_entropy is not None else None
             }
             with open(detection_path, 'w') as f:
                 json.dump(detection_results, f, indent=2)
