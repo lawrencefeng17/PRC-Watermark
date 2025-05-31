@@ -4,7 +4,7 @@ import argparse
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from tqdm import tqdm
 
-def generate_top_p_from_binarized_logic(model, tokenizer, prompt, top_p=0.9, temperature=1.0, max_tokens=200, continue_from=None):
+def generate_top_p_from_binarized_logic(model_id, model, tokenizer, prompt, top_p=0.9, temperature=1.0, max_tokens=200, continue_from=None):
     """
     Generates text using top-p sampling logic adapted from binarized.py,
     without any watermarking components.
@@ -52,6 +52,8 @@ def generate_top_p_from_binarized_logic(model, tokenizer, prompt, top_p=0.9, tem
                     return_dict=True
                 )
                 
+                if model_id == "meta-llama/Llama-3.2-1B-Instruct":
+                    past_key_values = outputs.past_key_values
                 next_token_logits = outputs.logits[:, -1, :]
                 
                 # Apply temperature
@@ -88,13 +90,12 @@ def generate_top_p_from_binarized_logic(model, tokenizer, prompt, top_p=0.9, tem
                     # Fallback to most likely token if sampling fails
                     next_token = allowed_tokens[0].item()
                 
-                # Break if we generate an EOS token
-                if next_token == tokenizer.eos_token_id:
-                    break
-                
                 # Update input_ids and attention_mask for next iteration
                 next_token_tensor = torch.tensor([[next_token]], device=device)
-                input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
+                if model_id == "meta-llama/Llama-3.2-1B-Instruct":
+                    input_ids = next_token_tensor
+                else:
+                    input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
                 attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_tensor)], dim=1)
                 
                 # Store the generated token
@@ -111,12 +112,11 @@ def generate_top_p_from_binarized_logic(model, tokenizer, prompt, top_p=0.9, tem
 def main():
     parser = argparse.ArgumentParser(description='Standalone Top-P Sampling Test')
     parser.add_argument('--prompt', type=str, default="""Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be at least 2000 words long.""")
-    parser.add_argument('--continue_from', type=str, default=None, help='Text to continue from. Will be appended to the prompt before generation.')
     parser.add_argument('--model_id', type=str, default='meta-llama/Llama-3.2-1B-Instruct')
     parser.add_argument('--temperature', type=float, default=1.0) 
     parser.add_argument('--top_p', type=float, default=0.995)
-    parser.add_argument('--apply_chat_template', action='store_true', help="Apply Llama-3 Instruct chat template to the prompt.")
-    parser.add_argument('--continue_from_file', type=str, default=None, help='File to continue from. Will be appended to the prompt before generation.')
+    parser.add_argument('-m', '--max_tokens', type=int, default=200)
+    parser.add_argument('-c', '--continue_from_file', type=str, default=None, help='File to continue from. Will be appended to the prompt before generation.')
 
     args = parser.parse_args()
     
@@ -177,6 +177,7 @@ def main():
         continue_from = None
 
     generated_text, generated_token_ids = generate_top_p_from_binarized_logic(
+        model_id=args.model_id,
         model=model,
         tokenizer=tokenizer,
         prompt=current_prompt,

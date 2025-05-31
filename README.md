@@ -24,17 +24,54 @@ The repository has been organized into the following structure:
 * `attacks/` - Implementation of attacks on watermarking schemes
 * `baselines/` - Implementation of baselines for language model generation
 
-## Running the Language Model Watermarking
+## Running Code
+
+### Text Watermarking
 
 To run the text watermarking procedure, use the following command:
 
 ```
-python watermarking/run_watermarking.py --model_id "meta-llama/Llama-3.2-1B-Instruct" --n 2048 --prc_t 3 --temperature 1 --debug --new --top_p 0.995
+python watermarking/run_watermarking.py --model_id "meta-llama/Llama-3.2-1B-Instruct" --n 2048 --prc_t 3 --temperature 1 --debug --new --top_p 0.995 --methods token
 ```
+
+The flags for watermarking/run_watermarking.py are:
+* `--model_id` - The model to use for generation.
+* `--n` - The length of the PRC code.
+* `--prc_t` - The sparsity of the PRC code.
+* `--temperature` - The temperature to use for generation.
+* `--debug` - Whether to enable debug mode.
+* `--new` - Whether to force the generation of a new piece of text.
+* `--top_p` - The top-p value to use for generation.
+* `--methods` - The methods to run. The default is to run all methods. The three methods are binary, tokens, and independent_hash.
+* `--greedy` - Greedy sampling as opposed to multinomial sampling.
 
 This will watermark the text with a PRC code of length 2048. The parity check matrix is t-sparse, given by prc_t. The temperature is the temperature of the LLM. 
 
-Debug will enable the generation of graphs and other statistics. New will force the generation of a new piece of text (watermarked text can be saved and reused).
+Debug flag will enable the generation of graphs and other statistics. New flag will force the generation of a new piece of text (watermarked text can be saved and reused).
+
+### Baselines
+
+To run the top-p baseline, use the following command:
+
+```
+python baselines/top_p_standalone.py --model_id "meta-llama/Llama-3.2-1B-Instruct" --prompt "Write a thrilling story about a murder investigation in an old mansion." --max_tokens 1024 --continue_from_file continue_from_file.txt
+```
+
+The flags for baselines/top_p_standalone.py are:
+* `--prompt` - The prompt to use for generation.
+* `--model_id` - The model to use for generation.
+* `--max_tokens` - The maximum number of tokens to generate.
+* `--temperature` - The temperature to use for generation.
+* `--top_p` - The top-p value to use for generation.
+* `--continue_from_file` - The file to continue from. Will be appended to the prompt before generation.
+
+### Sweeps
+
+To run a sweep across prompt (categories), top-p values, use the following command:
+
+```
+python run_all_comparisons.py
+```
 
 ## Reduction to the Binary Alphabet (CG24)
 
@@ -70,6 +107,8 @@ That is, take the SUM of (probabilities of tokens) whose encoding begins with th
 
 ### Results of Implementatoin
 
+Produced using sweep code `run_all_comparisons.py`
+
 * Gemma-3-1b-it
 * 3 categories of prompts (coding, story generation, and book report)
 * t=3, n=1024, top-p=[0.995, 0.99, 0.98, 0.95, 0.9]
@@ -83,4 +122,3 @@ That is, take the SUM of (probabilities of tokens) whose encoding begins with th
 ![Entropy vs Rejection Rate](/substitution_rate_experiments/entropy_vs_rejection_scatter.png)
 
 The subsituttion rate needed to make this scheme practical is high, around 40%.
-

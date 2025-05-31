@@ -126,6 +126,8 @@ class TokenWatermarkModel:
         else:
             self.rejection_count = 0 # Always init rejection_count even without debug mode
 
+        # KV cache
+        past_key_values = None
         with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
             while len(output_tokens) < num_tokens:
                 # Forward pass with proper attention mask
@@ -134,11 +136,13 @@ class TokenWatermarkModel:
                         input_ids=input_ids,
                         attention_mask=attention_mask,
                         use_cache=True,
-                        return_dict=True
+                        return_dict=True,
+                        past_key_values=past_key_values
                     )
                     logits = outputs.logits[:, -1, :]
                     probs = torch.softmax(logits / self.temperature, dim=-1)
-
+                    past_key_values = outputs.past_key_values
+    
                 sorted_probs, sorted_indices = torch.sort(probs[0], descending=True)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
                 
@@ -210,8 +214,10 @@ class TokenWatermarkModel:
                 
                 # generate next token
                 next_token_tensor = torch.tensor([[token_id]], device=self.device)
-                input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
-                attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_tensor)], dim=1)
+                # input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
+                input_ids = next_token_tensor
+                # attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_tensor)], dim=1)
+                attention_mask = torch.ones_like(next_token_tensor)
                 
                 # Store the generated token
                 output_tokens.append(token_id)
