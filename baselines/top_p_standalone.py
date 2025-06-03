@@ -3,6 +3,7 @@ import torch.nn.functional as F
 import argparse
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 from tqdm import tqdm
+import os
 
 def generate_top_p_from_binarized_logic(model_id, model, tokenizer, prompt, top_p=0.9, temperature=1.0, max_tokens=200, continue_from=None):
     """
@@ -117,6 +118,7 @@ def main():
     parser.add_argument('--top_p', type=float, default=0.995)
     parser.add_argument('-m', '--max_tokens', type=int, default=200)
     parser.add_argument('-c', '--continue_from_file', type=str, default=None, help='File to continue from. Will be appended to the prompt before generation.')
+    parser.add_argument('-o', '--output_dir', type=str, default=None, help='Directory to save the generated text to.')
 
     args = parser.parse_args()
     
@@ -190,6 +192,11 @@ def main():
     print("\\n--- Generated Text ---")
     print(generated_text)
     print(f"\\nNumber of tokens generated: {len(generated_token_ids)}")
+
+    # save text
+    if args.output_dir:
+        with open(os.path.join(args.output_dir, "generated_text.txt"), "w") as f:
+            f.write(generated_text)
 
 if __name__ == "__main__":
     main() 

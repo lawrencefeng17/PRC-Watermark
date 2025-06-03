@@ -1,0 +1,57 @@
+{
+  "experiment_id": "watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_1.0_greedy_False",
+  "timestamp": "20250603_024434_744478",
+  "start_time": "2025-06-03 02:44:37",
+  "end_time": "2025-06-03 02:45:33",
+  "duration_seconds": 55.98731,
+  "parameters": {
+    "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+    "prompt": "Write a thrilling story about a murder investigation in an old mansion.",
+    "num_tokens": 2048,
+    "n": 2048,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "greedy": false,
+    "methods": "token",
+    "experiment_id": null,
+    "output_dir": "/home/lawrence/llama_degeneration_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true
+  },
+  "results": {
+    "config": {
+      "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+      "prompt": "Write a thrilling story about a murder investigation in an old mansion.",
+      "num_tokens": 2048,
+      "n": 2048,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "greedy": false,
+      "methods": "token",
+      "experiment_id": null,
+      "output_dir": "/home/lawrence/llama_degeneration_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true
+    },
+    "methods": {
+      "token": {
+        "threshold": 689.6885582087334,
+        "hamming_weight": 609.0,
+        "detection_result": true,
+        "generation_time": 55.790198802948,
+        "rejection_rate": 0.12353515625,
+        "match_rate": 0.87646484375,
+        "method": "token",
+        "average_pushforward_entropy": 0.8129796981811523,
+        "std_dev_pushforward_entropy": 0.33797407150268555
+      }
+    }
+  },
+  "model_id": "meta-llama/Llama-3.2-1B-Instruct",
+  "device": "cuda",
+  "prompt": "Write a thrilling story about a murder investigation in an old mansion."
+}

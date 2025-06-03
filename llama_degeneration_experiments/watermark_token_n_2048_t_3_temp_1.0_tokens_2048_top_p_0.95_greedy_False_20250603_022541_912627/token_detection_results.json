@@ -1,0 +1,11 @@
+{
+  "threshold": 689.6885582087334,
+  "hamming_weight": 987.0,
+  "detection_result": false,
+  "generation_time": 41.81523609161377,
+  "rejection_rate": 0.3876953125,
+  "match_rate": 0.6123046875,
+  "method": "token",
+  "average_pushforward_entropy": 0.32904624938964844,
+  "std_dev_pushforward_entropy": 0.38212451338768005
+}
