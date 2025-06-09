@@ -13,3 +13,27 @@ Generation started at: 2025-06-03 04:22:31
 === Running Token Watermarking ===
 Creating token watermarking model
 Generating watermarked text (token method)
+Token generation completed in 44.92 seconds
+Generated 2048 tokens
+Rejection rate: 0.4092
+Match rate: 0.5908
+Output text saved to /home/lawrence/PRC-Watermark/llama_degeneration_experiments/watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.9_greedy_False_20250603_042226_533986/text/token_output.txt
+Average entropy for accepted tokens: 0.3886
+Average entropy for rejected tokens: 0.1531
+Detecting watermark...
+Threshold: 689.6885582087334, Hamming weight: 1005.0
+Detection result: False
+Average pushforward entropy: 0.2922
+Std dev pushforward entropy: 0.3873
+Experiment completed at: 2025-06-03 04:23:16
+Total duration: 0:00:45.101150
+
+=== Experiment Summary ===
+
+TOKEN Watermarking:
+  Watermark detected: False
+  Hamming weight: 1005.0 (threshold: 689.6885582087334)
+  Rejection rate: 0.4092
+  Match rate: 0.5908
+
+Results saved to: /home/lawrence/PRC-Watermark/llama_degeneration_experiments/watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_0.9_greedy_False_20250603_042226_533986

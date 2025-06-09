@@ -1,0 +1,39 @@
+Experiment ID: watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_1.0_greedy_False
+Timestamp: 20250603_043012_732292
+Parameters: {'model_id': 'meta-llama/Llama-3.2-1B-Instruct', 'prompt': 'Write a thrilling story about a murder investigation in an old mansion.', 'num_tokens': 2048, 'n': 2048, 'temperature': 1.0, 'top_p': 1.0, 'greedy': False, 'methods': 'token', 'experiment_id': None, 'output_dir': '/home/lawrence/PRC-Watermark/llama_degeneration_experiments', 'fpr': 1e-05, 'prc_t': 3, 'debug': True, 'new': True}
+Loading model...
+Cleared CUDA cache after model loading.
+Model loaded on cuda
+Prompt: Write a thrilling story about a murder investigation in an old mansion.
+Setting up PRC keys for watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_1.0_greedy_False
+PRC keys set up
+Saved key to /home/lawrence/PRC-Watermark/llama_degeneration_experiments/watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_1.0_greedy_False_20250603_043012_732292/watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_1.0_greedy_False_key.pkl
+Generation started at: 2025-06-03 04:30:18
+
+=== Running Token Watermarking ===
+Creating token watermarking model
+Generating watermarked text (token method)
+Token generation completed in 46.57 seconds
+Generated 2048 tokens
+Rejection rate: 0.2612
+Match rate: 0.7388
+Output text saved to /home/lawrence/PRC-Watermark/llama_degeneration_experiments/watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_1.0_greedy_False_20250603_043012_732292/text/token_output.txt
+Average entropy for accepted tokens: 0.7278
+Average entropy for rejected tokens: 0.2339
+Detecting watermark...
+Threshold: 689.6885582087334, Hamming weight: 880.0
+Detection result: False
+Average pushforward entropy: 0.5987
+Std dev pushforward entropy: 0.4216
+Experiment completed at: 2025-06-03 04:31:04
+Total duration: 0:00:46.750395
+
+=== Experiment Summary ===
+
+TOKEN Watermarking:
+  Watermark detected: False
+  Hamming weight: 880.0 (threshold: 689.6885582087334)
+  Rejection rate: 0.2612
+  Match rate: 0.7388
+
+Results saved to: /home/lawrence/PRC-Watermark/llama_degeneration_experiments/watermark_token_n_2048_t_3_temp_1.0_tokens_2048_top_p_1.0_greedy_False_20250603_043012_732292

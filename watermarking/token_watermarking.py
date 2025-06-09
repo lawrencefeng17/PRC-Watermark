@@ -141,7 +141,8 @@ class TokenWatermarkModel:
                     )
                     logits = outputs.logits[:, -1, :]
                     probs = torch.softmax(logits / self.temperature, dim=-1)
-                    past_key_values = outputs.past_key_values
+                    if self.original_model.config.model_type == "llama":
+                        past_key_values = outputs.past_key_values
     
                 sorted_probs, sorted_indices = torch.sort(probs[0], descending=True)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
@@ -213,9 +214,12 @@ class TokenWatermarkModel:
                 hashed_output_tokens_seq.append(token_hash)
                 
                 # generate next token
-                next_token_tensor = torch.tensor([[token_id]], device=self.device)
-                # input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
-                input_ids = next_token_tensor
+                if self.original_model.config.model_type == "llama":
+                    next_token_tensor = torch.tensor([[token_id]], device=self.device)
+                    input_ids = next_token_tensor
+                else:
+                    next_token_tensor = torch.tensor([[token_id]], device=self.device)
+                    input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
                 # attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_tensor)], dim=1)
                 attention_mask = torch.ones_like(next_token_tensor)
                 

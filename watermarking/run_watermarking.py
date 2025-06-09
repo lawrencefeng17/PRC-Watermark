@@ -61,23 +61,23 @@ def setup(exp_id, n, message_length, fpr, prc_t):
 
 def main():
     parser = argparse.ArgumentParser(description="Run different watermarking methods")
-    parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Model ID from HuggingFace")
-    # parser.add_argument("--model_id", type=str, default="google/gemma-3-1b-pt", help="Model ID from HuggingFace")
+    # parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Model ID from HuggingFace")
+    parser.add_argument("--model_id", type=str, default="google/gemma-3-1b-it", help="Model ID from HuggingFace")
     parser.add_argument("--prompt", type=str, default="Write a thrilling story about a murder investigation in an old mansion.", help="Prompt for text generation")
-    parser.add_argument("--num_tokens", type=int, default=2**11, help="Number of tokens to generate")
-    parser.add_argument("--n", type=int, default=2**11, help="Length of the PRC codeword")
+    parser.add_argument("--num_tokens", type=int, default=2**10, help="Number of tokens to generate")
+    parser.add_argument("--n", type=int, default=2**10, help="Length of the PRC codeword")
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
     parser.add_argument("--top_p", type=float, default=1.00, help="Top-p sampling parameter")
     parser.add_argument("--greedy", action="store_true", help="Use greedy decoding")
-    parser.add_argument("--methods", type=str, default="all", 
+    parser.add_argument("--methods", type=str, default="token", 
                         choices=["all", "binary", "token", "independent_hash"],
                         help="Which method to run")
     parser.add_argument("--experiment_id", type=str, default=None, help="Experiment ID for key management")
     parser.add_argument("--output_dir", type=str, default="experiments", help="Directory to save the results")
     parser.add_argument("--fpr", type=float, default=0.00001, help="False positive rate for PRC code")
     parser.add_argument("--prc_t", type=int, default=3, help="Sparsity of the parity-check matrix")
-    parser.add_argument("--debug", action="store_true", help="Enable debug mode with more verbose logging and plots")
-    parser.add_argument("--new", action="store_true", help="Force generation of new text even if cached version exists")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode with more verbose logging and plots", default=True)
+    parser.add_argument("--new", action="store_true", help="Force generation of new text even if cached version exists", default=True)
     
     args = parser.parse_args()
     
