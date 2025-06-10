@@ -123,6 +123,76 @@ def detect_token_watermark(model, watermarked_text):
     
     return threshold, hamming_weight, result
 
+def detect_xor_watermark(model, watermarked_text):
+    """
+    Detects if the provided text is watermarked using the XOR-based scheme.
+    
+    This function processes tokens in groups of size model.group_size, computes the XOR
+    of their bucket hashes, and uses that as the reconstructed PRC bit sequence.
+    
+    Args:
+        model: The XOR watermarking model used for generation.
+        watermarked_text: List of token IDs to check.
+        
+    Returns:
+        threshold: The threshold for detection.
+        hamming_weight: The computed Hamming weight.
+        result: Boolean indicating if the text is watermarked.
+    """
+    hash_function = model.hash_function
+    group_size = model.group_size
+    
+    # Process tokens in groups and compute XOR of their hashes
+    reconstructed_prc_bits = []
+    for i in range(0, len(watermarked_text), group_size):
+        group = watermarked_text[i:i + group_size]
+        
+        # If we don't have enough tokens for a full group at the end, pad with zeros
+        if len(group) < group_size:
+            group = group + [0] * (group_size - len(group))
+            
+        # Compute XOR of hashes in the group
+        group_xor = 0
+        for token_id in group:
+            group_xor ^= hash_function(token_id)
+            
+        reconstructed_prc_bits.append(group_xor)
+    
+    reconstructed_prc_bits = torch.tensor(reconstructed_prc_bits, dtype=torch.float)
+    
+    # Ensure we have enough bits - pad with zeros if needed
+    if len(reconstructed_prc_bits) < model.n:
+        reconstructed_prc_bits = torch.cat([
+            reconstructed_prc_bits, 
+            torch.zeros(model.n - len(reconstructed_prc_bits))
+        ])
+    # If we have too many bits, truncate
+    elif len(reconstructed_prc_bits) > model.n:
+        print(f"Truncating {len(reconstructed_prc_bits)} bits to {model.n} bits")
+        reconstructed_prc_bits = reconstructed_prc_bits[:model.n]
+        
+    # Apply parity check matrix to get detection result
+    parity_check_matrix = model.decoding_key[1]
+    r = parity_check_matrix.shape[0]
+    
+    # compute Px
+    Px = (parity_check_matrix @ reconstructed_prc_bits) % 2
+    
+    # compute Pz, where z is the one-time pad
+    z = model.decoding_key[2]
+    Pz = (parity_check_matrix @ z) % 2
+    
+    # compute Px ⊕ Pz (Px XOR Pz)
+    Px_xor_Pz = (Px + Pz) % 2
+    
+    hamming_weight = np.sum(Px_xor_Pz)
+    
+    threshold = (1/2 - r**(-1/4)) * r
+    # if below threshold, then detection is positive
+    result = hamming_weight < threshold
+    
+    return threshold, hamming_weight, result
+
 def detect_independent_hash_watermark(model, watermarked_text, position_hash_tensors):
     """
     Detects if the provided text is watermarked using position-specific hash functions.
@@ -241,3 +311,20 @@ def regenerate_independent_hash_functions(model, vocab_size, device, output_toke
         position_hash_tensors[pos] = hash_tensor
     
     return position_hash_tensors 
+
+def compute_baseline_hamming_weight(model):
+    """
+    Computes the Hamming weight of original codeword.
+    """
+    parity_check_matrix = model.decoding_key[1]
+    prc_codeword = model.prc_codeword
+    
+    # compute Px
+    Px = (parity_check_matrix @ prc_codeword) % 2
+    
+    hamming_weight = np.sum(Px)
+    threshold = (1/2 - parity_check_matrix.shape[0]**(-1/4)) * parity_check_matrix.shape[0]
+
+    result = hamming_weight < threshold
+    
+    return hamming_weight, threshold, result

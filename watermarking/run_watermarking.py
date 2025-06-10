@@ -38,11 +38,13 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from watermarking.binary_watermarking import BinaryWatermarkModel
 from watermarking.token_watermarking import TokenWatermarkModel
 from watermarking.independent_token_watermarking import IndependentHashModel
+from watermarking.xor_watermarking import XORWatermarkModel
 from watermarking.detection import (
     detect_binary_text_watermark,
     detect_token_watermark,
     detect_independent_hash_watermark,
-    regenerate_independent_hash_functions
+    detect_xor_watermark,
+    compute_baseline_hamming_weight,
 )
 
 def setup(exp_id, n, message_length, fpr, prc_t):
@@ -70,7 +72,7 @@ def main():
     parser.add_argument("--top_p", type=float, default=1.00, help="Top-p sampling parameter")
     parser.add_argument("--greedy", action="store_true", help="Use greedy decoding")
     parser.add_argument("--methods", type=str, default="token", 
-                        choices=["all", "binary", "token", "independent_hash"],
+                        choices=["all", "binary", "token", "independent_hash", "xor"],
                         help="Which method to run")
     parser.add_argument("--experiment_id", type=str, default=None, help="Experiment ID for key management")
     parser.add_argument("--output_dir", type=str, default="experiments", help="Directory to save the results")
@@ -78,6 +80,7 @@ def main():
     parser.add_argument("--prc_t", type=int, default=3, help="Sparsity of the parity-check matrix")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with more verbose logging and plots", default=True)
     parser.add_argument("--new", action="store_true", help="Force generation of new text even if cached version exists", default=True)
+    parser.add_argument("--group_size", type=int, default=2, help="Group size for XOR watermarking (number of tokens per codeword bit)")
     
     args = parser.parse_args()
     
@@ -430,10 +433,12 @@ def main():
             
             # Detect watermark
             log_message("Detecting watermark...")
+            baseline_hamming_weight, baseline_threshold, baseline_result = compute_baseline_hamming_weight(token_model)
             threshold, hamming_weight, result = detect_token_watermark(token_model, token_output_tokens)
-            
+
             log_message(f"Threshold: {threshold}, Hamming weight: {hamming_weight}")
             log_message(f"Detection result: {result}")
+            log_message(f"Baseline Hamming weight: {baseline_hamming_weight}")
             
             # Save detection results
             average_pushforward_entropy = None
@@ -454,7 +459,8 @@ def main():
                 "match_rate": match_rate,
                 "method": "token",
                 "average_pushforward_entropy": float(average_pushforward_entropy) if average_pushforward_entropy is not None else None,
-                "std_dev_pushforward_entropy": float(std_dev_pushforward_entropy) if std_dev_pushforward_entropy is not None else None
+                "std_dev_pushforward_entropy": float(std_dev_pushforward_entropy) if std_dev_pushforward_entropy is not None else None,
+                "baseline_hamming_weight": float(baseline_hamming_weight)
             }
             with open(detection_path, 'w') as f:
                 json.dump(detection_results, f, indent=2)
@@ -565,6 +571,7 @@ def main():
             
             # Detect watermark
             log_message("Detecting watermark...")
+            baseline_hamming_weight, baseline_threshold, baseline_result = compute_baseline_hamming_weight(hash_model)
             threshold, hamming_weight, result = detect_independent_hash_watermark(
                 hash_model, 
                 hash_output_tokens,
@@ -573,6 +580,7 @@ def main():
             
             log_message(f"Threshold: {threshold}, Hamming weight: {hamming_weight}")
             log_message(f"Detection result: {result}")
+            log_message(f"Baseline Hamming weight: {baseline_hamming_weight}")
             
             # Save detection results
             detection_path = os.path.join(experiment_dir, "independent_hash_detection_results.json")
@@ -583,7 +591,8 @@ def main():
                 "generation_time": generation_time,
                 "rejection_rate": rejection_rate,
                 "match_rate": match_rate,
-                "method": "independent_hash"
+                "method": "independent_hash",
+                "baseline_hamming_weight": float(baseline_hamming_weight)
             }
             with open(detection_path, 'w') as f:
                 json.dump(detection_results, f, indent=2)
@@ -604,6 +613,123 @@ def main():
             if os.path.exists(detection_path):
                 with open(detection_path, 'r') as f:
                     results["methods"]["independent_hash"] = json.load(f)
+                    log_message("Loaded existing detection results")
+            else:
+                log_message("Warning: Detection results not found")
+    
+    # Test XOR Watermarking
+    if args.methods == "all" or args.methods == "xor":
+        log_message("\n=== Running XOR Watermarking ===")
+        
+        output_tokens_path = os.path.join(tokens_dir, "xor_tokens.pkl")
+        
+        if not os.path.exists(output_tokens_path) or args.new:
+            log_message("Creating XOR watermarking model")
+            xor_model = XORWatermarkModel(
+                original_model=model,
+                encoding_key=encoding_key,
+                decoding_key=decoding_key,
+                n=args.n,
+                tokenizer=tokenizer,
+                vocab_size=model.config.vocab_size,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                group_size=args.group_size
+            )
+            
+            # Calculate number of codeword bits - use the PRC codeword length
+            # Each codeword bit requires group_size tokens
+            num_codeword_bits = args.n
+            total_tokens_to_generate = num_codeword_bits * args.group_size
+            log_message(f"Generating {num_codeword_bits} codeword bits with group size {args.group_size}")
+            log_message(f"Total tokens to generate: {total_tokens_to_generate}")
+            
+            # Generate watermarked text
+            log_message(f"Generating watermarked text (XOR method)")
+            start_time_xor = time.time()
+            xor_output_tokens, xor_output_text, xor_distribution_data, retry_statistics, success_rate = xor_model.watermarked_generate(
+                inputs, 
+                num_codeword_bits,
+                top_p=args.top_p,
+                greedy=args.greedy,
+                debug=args.debug,
+                max_retries_per_group=50
+            )
+            generation_time = time.time() - start_time_xor
+            breakpoint()
+            
+            # Save the tokens and XOR data
+            with open(output_tokens_path, 'wb') as f:
+                pickle_data = {
+                    'tokens': xor_output_tokens,
+                    'xor_distribution_data': xor_distribution_data,
+                    'retry_statistics': retry_statistics,
+                    'group_size': args.group_size,
+                }
+                pickle.dump(pickle_data, f)
+            
+            # Save the generated text
+            output_text_path = os.path.join(text_dir, "xor_output.txt")
+            with open(output_text_path, 'w', encoding='utf-8') as f:
+                f.write(xor_output_text)
+                
+            # Move any generated plots to the plots directory
+            save_plot_to_dir(f"xor_retry_distribution_groupsize_{args.group_size}.png")
+            save_plot_to_dir(f"xor_value_distribution_groupsize_{args.group_size}.png")
+            
+            # Calculate statistics
+            total_retries = sum(retry_statistics)
+            average_retries = total_retries / len(retry_statistics) if retry_statistics else 0
+            
+            log_message(f"XOR generation completed in {generation_time:.2f} seconds")
+            log_message(f"Generated {len(xor_output_tokens)} tokens for {num_codeword_bits} codeword bits")
+            log_message(f"Average retries per group: {average_retries:.2f}")
+            log_message(f"Success rate: {success_rate:.4f}")
+            rejection_rate = 1 - success_rate
+            log_message(f"Output text saved to {output_text_path}")
+            
+            # Detect watermark
+            log_message("Detecting watermark...")
+            threshold, hamming_weight, result = detect_xor_watermark(xor_model, xor_output_tokens)
+            baseline_hamming_weight, baseline_threshold, baseline_result = compute_baseline_hamming_weight(xor_model)
+            
+            log_message(f"Threshold: {threshold}, Hamming weight: {hamming_weight}")
+            log_message(f"Detection result: {result}")
+            log_message(f"Baseline Hamming weight: {baseline_hamming_weight}")
+            
+            # Save detection results
+            detection_path = os.path.join(experiment_dir, "xor_detection_results.json")
+            detection_results = {
+                "threshold": float(threshold),
+                "hamming_weight": float(hamming_weight),
+                "detection_result": bool(result),
+                "generation_time": generation_time,
+                "average_retries": average_retries,
+                "success_rate": success_rate,
+                "rejection_rate": rejection_rate,
+                "method": "xor",
+                "group_size": args.group_size,
+                "num_codeword_bits": num_codeword_bits,
+                "baseline_hamming_weight": float(baseline_hamming_weight)
+            }
+            with open(detection_path, 'w') as f:
+                json.dump(detection_results, f, indent=2)
+                
+            # Save to overall results
+            results["methods"]["xor"] = detection_results
+            
+        else:
+            log_message(f"Using existing XOR output from {output_tokens_path}")
+            with open(output_tokens_path, 'rb') as f:
+                pickle_data = pickle.load(f)
+                xor_output_tokens = pickle_data['tokens']
+                xor_output_text = tokenizer.decode(xor_output_tokens)
+                
+            # Load detection results if they exist
+            detection_path = os.path.join(experiment_dir, "xor_detection_results.json")
+            if os.path.exists(detection_path):
+                with open(detection_path, 'r') as f:
+                    results["methods"]["xor"] = json.load(f)
                     log_message("Loaded existing detection results")
             else:
                 log_message("Warning: Detection results not found")
@@ -654,6 +780,8 @@ def main():
             log_message(f"  Rejection rate: {data['rejection_rate']:.4f}")
         if 'match_rate' in data:
             log_message(f"  Match rate: {data['match_rate']:.4f}")
+        if 'success_rate' in data:
+            log_message(f"  Success rate: {data['success_rate']:.4f}")
     
     log_message(f"\nResults saved to: {experiment_dir}")
     

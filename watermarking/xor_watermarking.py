@@ -1,8 +1,10 @@
 """
-XOR-based watermarking scheme for language models.
+XOR-based watermarking scheme.
 
-This module implements a novel watermarking approach where we generate n tokens per codeword bit
-and only keep them if the XOR of their bucket assignments matches the target PRC bit.
+This module contains the implementation of a watermarking scheme that generates
+n tokens per codeword bit and uses XOR of bucket hashes to embed watermark bits.
+The method generates groups of n tokens, computes XOR of their bucket hashes,
+and keeps the group only if the XOR matches the target codeword bit.
 """
 import numpy as np
 import torch
@@ -26,7 +28,7 @@ class XORWatermarkModel:
             vocab_size: The vocabulary size.
             temperature: The temperature for the model.
             top_p: The cumulative probability for top-p sampling.
-            group_size: Number of tokens to generate per codeword bit (n in the method description).
+            group_size: Number of tokens to generate per codeword bit.
         """
         self.original_model = original_model
         self.tokenizer = tokenizer
@@ -40,38 +42,42 @@ class XORWatermarkModel:
 
         self.vocab_size = vocab_size
         self.token_hashes = torch.randint(0, 2, (self.vocab_size,), device=self.device)
-        self.hash_function = lambda x: self.token_hashes[x]
+        self.hash_function = lambda x: int(self.token_hashes[x])
+        
+        self.group_size = group_size
+        self.retry_count = 0
+        self.total_groups = 0
 
         assert len(self.prc_codeword) == n
         self.n = n
-        self.group_size = group_size
 
         self.prc_index = 0
         self.top_p = top_p
         
-        # Statistics tracking
-        self.retry_counts = []
-        self.xor_attempts = []  # Track all XOR attempts for distribution analysis
-        
-    def generate_token_group(self, input_ids, attention_mask, past_key_values, top_p=None, greedy=False):
+    def generate_token_group(self, input_ids, attention_mask, past_key_values, target_bit, top_p=None, greedy=False, debug=False, skip_xor_check=False):
         """
-        Generate a group of tokens using the current model state.
+        Generate a group of tokens and check if their XOR matches the target bit.
+        
+        Args:
+            skip_xor_check: If True, always return tokens regardless of XOR match
         
         Returns:
-            tokens: List of token IDs
-            bucket_values: List of bucket assignments (0 or 1) for each token
+            tokens: List of token IDs if successful, None if XOR doesn't match (unless skip_xor_check=True)
+            new_input_ids: Updated input_ids for next generation
+            new_attention_mask: Updated attention mask
             new_past_key_values: Updated KV cache
+            retry_needed: True if XOR didn't match target bit (False if skip_xor_check=True)
         """
         top_p = top_p if top_p is not None else self.top_p
+        group_tokens = []
+        group_hashes = []
         
-        tokens = []
-        bucket_values = []
         current_input_ids = input_ids
         current_attention_mask = attention_mask
         current_past_key_values = past_key_values
         
-        for _ in range(self.group_size):
-            # Forward pass
+        # Generate group_size tokens
+        for i in range(self.group_size):
             with torch.no_grad():
                 outputs = self.original_model(
                     input_ids=current_input_ids,
@@ -82,16 +88,18 @@ class XORWatermarkModel:
                 )
                 logits = outputs.logits[:, -1, :]
                 probs = torch.softmax(logits / self.temperature, dim=-1)
-                current_past_key_values = outputs.past_key_values
+                if self.original_model.config.model_type == "llama":
+                    current_past_key_values = outputs.past_key_values
 
-            # Top-p sampling
             sorted_probs, sorted_indices = torch.sort(probs[0], descending=True)
             cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
             
             top_p_mask = cumulative_probs < top_p
             # Include the first token that exceeds top_p, or all if sum < top_p
             if top_p_mask.sum() < len(sorted_probs):
-                top_p_mask[top_p_mask.sum()] = True
+                top_p_mask[top_p_mask.sum()] = True 
+            else:
+                pass  # top_p_mask already includes all tokens if sum < top_p
 
             top_p_indices = sorted_indices[top_p_mask]
             top_p_probs = sorted_probs[top_p_mask]
@@ -99,114 +107,143 @@ class XORWatermarkModel:
             # Normalize
             top_p_probs = top_p_probs / torch.sum(top_p_probs)
 
-            # Sample token
+            # Sample token from top-p distribution
             if greedy:
                 sampled_relative_index = torch.argmax(top_p_probs).item()
             else:
                 sampled_relative_index = torch.multinomial(top_p_probs, num_samples=1).item()
             
             token_id = top_p_indices[sampled_relative_index].item()
-            bucket_value = self.hash_function(token_id)
+            token_hash = self.hash_function(token_id)
             
-            tokens.append(token_id)
-            bucket_values.append(bucket_value)
+            group_tokens.append(token_id)
+            group_hashes.append(token_hash)
             
             # Update input for next token in group
             next_token_tensor = torch.tensor([[token_id]], device=self.device)
-            current_input_ids = next_token_tensor
+            if self.original_model.config.model_type == "llama":
+                current_input_ids = next_token_tensor
+            else:
+                current_input_ids = torch.cat([current_input_ids, next_token_tensor], dim=1)
             current_attention_mask = torch.ones_like(next_token_tensor)
         
-        return tokens, bucket_values, current_past_key_values
+        # Compute XOR of group hashes
+        group_xor = 0
+        for hash_val in group_hashes:
+            group_xor ^= hash_val
+        
+        # Check if XOR matches target bit
+        if skip_xor_check or group_xor == target_bit:
+            return group_tokens, current_input_ids, current_attention_mask, current_past_key_values, False
+        else:
+            return None, input_ids, attention_mask, past_key_values, True
 
-    def watermarked_generate(self, input_ids, num_tokens, top_p=None, greedy=False, debug=True):
+    def watermarked_generate(self, input_ids, num_codeword_bits, top_p=None, greedy=False, debug=True, max_retries_per_group=100):
         """
         Generate watermarked text using XOR-based method.
         
-        For each codeword bit, generate groups of tokens until their XOR matches the target bit.
-        
         Args:
             input_ids: The initial input_ids for generation.
-            num_tokens: The number of tokens to generate.
+            num_codeword_bits: Number of codeword bits to embed (each requires group_size tokens).
             top_p: The cumulative probability for top-p sampling.
             greedy: Whether to use greedy sampling.
             debug: Whether to generate debug plots and statistics.
+            max_retries_per_group: Maximum retries before giving up on a group.
             
         Returns:
             output_tokens: List of generated token ids
             output_text: Generated text
-            retry_counts: Number of retries needed for each codeword bit
-            xor_attempts: All XOR values attempted (for distribution analysis)
-            accepted_groups: List of token groups that were accepted
+            xor_distribution_data: Data about XOR patterns for analysis
+            retry_statistics: Statistics about retries per group
         """
         output_tokens = []
-        accepted_groups = []
+        xor_distribution_data = []
+        retry_statistics = []
         
         top_p = top_p if top_p is not None else self.top_p
 
         # Initialize attention mask
         attention_mask = torch.ones_like(input_ids).to(self.device)
         
-        # Get model configuration for context length limits
+        # Get model configuration
         config = self.original_model.config
         max_position_embeddings = getattr(config, 'max_position_embeddings', None)
         if max_position_embeddings and input_ids.shape[1] > max_position_embeddings:
             input_ids = input_ids[:, -max_position_embeddings:]
             attention_mask = attention_mask[:, -max_position_embeddings:]
 
-        # Reset statistics for this generation
-        self.retry_counts = []
-        self.xor_attempts = []
-
         # KV cache
         past_key_values = None
         
-        # Calculate how many complete groups we can generate
-        num_groups = num_tokens // self.group_size
-        if num_groups == 0:
-            raise ValueError(f"num_tokens ({num_tokens}) must be at least group_size ({self.group_size})")
-        
-        with tqdm(total=num_groups, desc=f"Generating {self.group_size}-token groups", disable=not debug) as pbar:
-            for group_idx in range(num_groups):
-                # Get target bit for this group
+        if debug:
+            self.retry_count = 0
+            self.total_groups = 0
+
+        with tqdm(total=num_codeword_bits, desc="Generating codeword bits", disable=not debug) as pbar:
+            for bit_index in range(num_codeword_bits):
+                # Get target bit from PRC codeword
                 target_bit = self.prc_codeword[self.prc_index].item()
                 
-                retry_count = 0
-                while True:
-                    # Generate a group of tokens
-                    tokens, bucket_values, past_key_values = self.generate_token_group(
-                        input_ids, attention_mask, past_key_values, top_p, greedy
+                # Try to generate a group that matches the target bit
+                retries_for_this_group = 0
+                group_generated = False
+                
+                while not group_generated and retries_for_this_group < max_retries_per_group:
+                    group_tokens, input_ids, attention_mask, past_key_values, retry_needed = self.generate_token_group(
+                        input_ids, attention_mask, past_key_values, target_bit, top_p, greedy, debug
                     )
                     
-                    # Calculate XOR of bucket values
-                    xor_result = 0
-                    for bucket_val in bucket_values:
-                        xor_result ^= bucket_val
-                    
-                    # Track this XOR attempt
-                    self.xor_attempts.append(xor_result)
-                    retry_count += 1
-                    
-                    # Check if XOR matches target bit
-                    if xor_result == target_bit:
-                        # Accept this group
-                        output_tokens.extend(tokens)
-                        accepted_groups.append({
-                            'tokens': tokens,
-                            'bucket_values': bucket_values,
-                            'xor_result': xor_result,
+                    if not retry_needed:
+                        # Success! Add tokens to output
+                        output_tokens.extend(group_tokens)
+                        group_generated = True
+                        
+                        # Store XOR data for analysis
+                        group_hashes = [self.hash_function(token) for token in group_tokens]
+                        group_xor = 0
+                        for hash_val in group_hashes:
+                            group_xor ^= hash_val
+                        
+                        xor_distribution_data.append({
+                            'group_tokens': group_tokens,
+                            'group_hashes': group_hashes,
+                            'group_xor': int(group_xor),
                             'target_bit': target_bit,
-                            'retry_count': retry_count
+                            'retries': retries_for_this_group,
+                            'failed': False
                         })
-                        break
-                    # If XOR doesn't match, retry (continue loop)
+                    else:
+                        retries_for_this_group += 1
+                        if debug:
+                            self.retry_count += 1
                 
-                self.retry_counts.append(retry_count)
+                if not group_generated:
+                    print(f"Warning: Failed to generate group after {max_retries_per_group} retries for bit {bit_index}")
+                    # Generate tokens anyway without XOR constraint
+                    group_tokens, input_ids, attention_mask, past_key_values, _ = self.generate_token_group(
+                        input_ids, attention_mask, past_key_values, target_bit, top_p, greedy, debug, skip_xor_check=True
+                    )
+                    output_tokens.extend(group_tokens)
+                    
+                    # Still store data for analysis
+                    group_hashes = [self.hash_function(token) for token in group_tokens]
+                    group_xor = 0
+                    for hash_val in group_hashes:
+                        group_xor ^= hash_val
+                    
+                    xor_distribution_data.append({
+                        'group_tokens': group_tokens,
+                        'group_hashes': group_hashes,
+                        'group_xor': int(group_xor),
+                        'target_bit': target_bit,
+                        'retries': retries_for_this_group,
+                        'failed': True
+                    })
                 
-                # Update input_ids and attention_mask for next group
-                # Use the last group of tokens as context for the next group
-                new_tokens_tensor = torch.tensor([tokens], device=self.device)
-                input_ids = new_tokens_tensor
-                attention_mask = torch.ones_like(new_tokens_tensor)
+                retry_statistics.append(retries_for_this_group)
+                
+                if debug:
+                    self.total_groups += 1
                 
                 # Update PRC index
                 self.prc_index += 1
@@ -219,165 +256,44 @@ class XORWatermarkModel:
                 
                 if debug:
                     pbar.update(1)
-                    pbar.set_postfix({
-                        'avg_retries': np.mean(self.retry_counts),
-                        'last_retries': retry_count
-                    })
 
         if debug:
-            self._generate_debug_plots()
-            self._print_statistics()
+            print(f"Total retries: {self.retry_count}")
+            print(f"Total groups: {self.total_groups}")
+            print(f"Average retries per group: {self.retry_count / self.total_groups if self.total_groups > 0 else 0:.2f}")
+            print(f"Generated {len(output_tokens)} tokens for {num_codeword_bits} codeword bits")
+            print(f"Tokens per codeword bit: {len(output_tokens) / num_codeword_bits:.2f}")
+            
+            # Plot retry statistics
+            plt.figure(figsize=(10, 6))
+            plt.hist(retry_statistics, bins=range(max(retry_statistics) + 2), alpha=0.7, edgecolor='black')
+            plt.title(f"Distribution of Retries per Group (Group Size = {self.group_size})")
+            plt.xlabel("Number of Retries")
+            plt.ylabel("Frequency")
+            plt.grid(True, alpha=0.3)
+            plt.savefig(f"xor_retry_distribution_groupsize_{self.group_size}.png")
+            plt.close()
+            
+            # Plot XOR success rate
+            xor_values = [data['group_xor'] for data in xor_distribution_data]
+            target_bits = [data['target_bit'] for data in xor_distribution_data]
+            matches = [xor_val == target for xor_val, target in zip(xor_values, target_bits)]
+            success_rate = sum(matches) / len(matches) if len(matches) > 0 else 0
+            
+            print(f"XOR match success rate: {success_rate:.4f}")
+            
+            # Plot XOR distribution
+            plt.figure(figsize=(8, 6))
+            plt.hist(xor_values, bins=[0, 1, 2], alpha=0.7, edgecolor='black')
+            plt.title(f"Distribution of XOR Values (Group Size = {self.group_size})")
+            plt.xlabel("XOR Value")
+            plt.ylabel("Frequency")
+            plt.xticks([0, 1])
+            plt.grid(True, alpha=0.3)
+            plt.savefig(f"xor_value_distribution_groupsize_{self.group_size}.png")
+            plt.close()
 
         # Generate output text
         output_text = self.tokenizer.decode(output_tokens)
         
-        return output_tokens, output_text, self.retry_counts, self.xor_attempts, accepted_groups
-
-    def _generate_debug_plots(self):
-        """Generate debug plots for XOR distribution and retry statistics."""
-        
-        # Plot XOR distribution
-        plt.figure(figsize=(10, 6))
-        xor_values = np.array(self.xor_attempts)
-        unique_values, counts = np.unique(xor_values, return_counts=True)
-        
-        plt.subplot(2, 2, 1)
-        plt.bar(unique_values, counts)
-        plt.title(f"XOR Distribution (Group Size: {self.group_size})")
-        plt.xlabel("XOR Result")
-        plt.ylabel("Frequency")
-        plt.xticks([0, 1])
-        
-        # Add percentage labels
-        total_attempts = len(xor_values)
-        for i, (val, count) in enumerate(zip(unique_values, counts)):
-            plt.text(val, count + max(counts)*0.01, f'{100*count/total_attempts:.1f}%', 
-                    ha='center', va='bottom')
-        
-        # Plot retry count distribution
-        plt.subplot(2, 2, 2)
-        plt.hist(self.retry_counts, bins=20, edgecolor='black', alpha=0.7)
-        plt.title("Retry Count Distribution")
-        plt.xlabel("Number of Retries")
-        plt.ylabel("Frequency")
-        
-        # Plot retry counts over time
-        plt.subplot(2, 2, 3)
-        plt.plot(self.retry_counts, marker='o', markersize=2)
-        plt.title("Retry Counts Over Time")
-        plt.xlabel("Group Index")
-        plt.ylabel("Number of Retries")
-        
-        # Plot cumulative XOR distribution
-        plt.subplot(2, 2, 4)
-        cumulative_0 = np.cumsum(xor_values == 0)
-        cumulative_1 = np.cumsum(xor_values == 1)
-        x_axis = np.arange(1, len(xor_values) + 1)
-        
-        plt.plot(x_axis, cumulative_0 / x_axis, label='XOR = 0', alpha=0.7)
-        plt.plot(x_axis, cumulative_1 / x_axis, label='XOR = 1', alpha=0.7)
-        plt.axhline(y=0.5, color='red', linestyle='--', alpha=0.5, label='Expected (0.5)')
-        plt.title("Cumulative XOR Proportions")
-        plt.xlabel("Attempt Number")
-        plt.ylabel("Proportion")
-        plt.legend()
-        plt.ylim(0, 1)
-        
-        plt.tight_layout()
-        plt.savefig(f"xor_watermark_analysis_groupsize_{self.group_size}.png", dpi=150)
-        plt.close()
-
-    def _print_statistics(self):
-        """Print detailed statistics about the XOR watermarking process."""
-        print(f"\n=== XOR Watermarking Statistics (Group Size: {self.group_size}) ===")
-        
-        # XOR distribution
-        xor_values = np.array(self.xor_attempts)
-        xor_0_count = np.sum(xor_values == 0)
-        xor_1_count = np.sum(xor_values == 1)
-        total_attempts = len(xor_values)
-        
-        print(f"Total XOR attempts: {total_attempts}")
-        print(f"XOR = 0: {xor_0_count} ({100*xor_0_count/total_attempts:.1f}%)")
-        print(f"XOR = 1: {xor_1_count} ({100*xor_1_count/total_attempts:.1f}%)")
-        
-        # Expected vs actual
-        expected_prob = 0.5  # For random tokens, XOR should be ~50/50
-        actual_prob_0 = xor_0_count / total_attempts
-        print(f"Expected P(XOR=0): {expected_prob:.3f}, Actual: {actual_prob_0:.3f}")
-        
-        # Retry statistics
-        retry_counts = np.array(self.retry_counts)
-        print(f"\nRetry Statistics:")
-        print(f"Average retries per group: {np.mean(retry_counts):.2f}")
-        print(f"Median retries per group: {np.median(retry_counts):.2f}")
-        print(f"Max retries for any group: {np.max(retry_counts)}")
-        print(f"Groups requiring >5 retries: {np.sum(retry_counts > 5)} ({100*np.sum(retry_counts > 5)/len(retry_counts):.1f}%)")
-        
-        # Efficiency analysis
-        theoretical_expected_retries = 1 / expected_prob  # Expected retries if truly random
-        actual_expected_retries = np.mean(retry_counts)
-        print(f"\nEfficiency Analysis:")
-        print(f"Theoretical expected retries (if random): {theoretical_expected_retries:.2f}")
-        print(f"Actual expected retries: {actual_expected_retries:.2f}")
-        print(f"Efficiency ratio: {theoretical_expected_retries/actual_expected_retries:.3f}")
-
-    def analyze_xor_distribution(self, input_ids, num_samples=1000, top_p=None):
-        """
-        Analyze the XOR distribution without watermarking constraints.
-        
-        This generates many token groups and computes their XOR distribution
-        to understand the baseline randomness.
-        
-        Args:
-            input_ids: Starting input for generation
-            num_samples: Number of token groups to generate for analysis
-            top_p: Top-p sampling parameter
-            
-        Returns:
-            xor_distribution: Dictionary with XOR value frequencies
-            samples: List of all XOR values computed
-        """
-        top_p = top_p if top_p is not None else self.top_p
-        
-        # Initialize
-        attention_mask = torch.ones_like(input_ids).to(self.device)
-        past_key_values = None
-        xor_samples = []
-        
-        print(f"Analyzing XOR distribution for group size {self.group_size}...")
-        
-        with tqdm(total=num_samples, desc="Generating samples") as pbar:
-            for _ in range(num_samples):
-                # Generate a group of tokens
-                tokens, bucket_values, past_key_values = self.generate_token_group(
-                    input_ids, attention_mask, past_key_values, top_p, greedy=False
-                )
-                
-                # Calculate XOR
-                xor_result = 0
-                for bucket_val in bucket_values:
-                    xor_result ^= bucket_val
-                
-                xor_samples.append(xor_result)
-                pbar.update(1)
-        
-        # Analyze distribution
-        xor_samples = np.array(xor_samples)
-        xor_0_count = np.sum(xor_samples == 0)
-        xor_1_count = np.sum(xor_samples == 1)
-        
-        distribution = {
-            0: xor_0_count,
-            1: xor_1_count,
-            'prob_0': xor_0_count / num_samples,
-            'prob_1': xor_1_count / num_samples,
-            'total_samples': num_samples
-        }
-        
-        print(f"XOR Distribution Analysis (Group Size {self.group_size}):")
-        print(f"P(XOR = 0) = {distribution['prob_0']:.4f}")
-        print(f"P(XOR = 1) = {distribution['prob_1']:.4f}")
-        print(f"Expected retries for target bit: {1/min(distribution['prob_0'], distribution['prob_1']):.2f}")
-        
-        return distribution, xor_samples.tolist() 
+        return output_tokens, output_text, xor_distribution_data, retry_statistics, success_rate
