@@ -15,7 +15,7 @@ from src.prc import Encode, KeyGen
 
 class TokenWatermarkModel:
     def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, 
-                 vocab_size=None, temperature=1.0, top_p=0.9):
+                 vocab_size=None, temperature=1.0, top_p=0.9, model_id=None):
         """
         Args:
             original_model: The original language model.
@@ -26,6 +26,7 @@ class TokenWatermarkModel:
             vocab_size: The vocabulary size.
             temperature: The temperature for the model.
             top_p: The cumulative probability for top-p sampling.
+            model_id: The model ID for determining cache type.
         """
         self.original_model = original_model
         self.tokenizer = tokenizer
@@ -36,6 +37,7 @@ class TokenWatermarkModel:
         X_pm1 = Encode(encoding_key)
         self.prc_codeword = ((1 - X_pm1) / 2).long()
         self.temperature = temperature
+        self.model_id = model_id
 
         self.vocab_size = vocab_size
         self.token_hashes = torch.randint(0, 2, (self.vocab_size,), device=self.device)
@@ -48,6 +50,30 @@ class TokenWatermarkModel:
         self.prc_index = 0
         self.top_p = top_p
         
+    def _initialize_cache(self, input_ids, max_tokens):
+        """Initialize KV cache based on model type."""
+        # Check if this is a Gemma-3 model that needs HybridCache
+        if self.model_id and "gemma-3" in self.model_id.lower():
+            try:
+                from transformers import HybridCache
+                # Calculate max cache length (input + max_tokens)
+                max_cache_length = input_ids.shape[1] + max_tokens
+                
+                past_key_values = HybridCache(
+                    config=self.original_model.config,
+                    max_batch_size=1,
+                    max_cache_len=max_cache_length,
+                    device=self.device,
+                    dtype=self.dtype
+                )
+                print(f"Using HybridCache for Gemma-3 model with max_cache_len={max_cache_length}")
+                return past_key_values
+            except ImportError:
+                print("HybridCache not available, falling back to regular caching")
+                return None
+        else:
+            return None
+
     def embed_char(self, x_j, pushforward_probs, debug=True):
         """
         Choose a bucket according to the pushforward distribution.
@@ -126,23 +152,25 @@ class TokenWatermarkModel:
         else:
             self.rejection_count = 0 # Always init rejection_count even without debug mode
 
-        # KV cache
-        past_key_values = None
+        # Initialize KV cache based on model type
+        past_key_values = self._initialize_cache(input_ids, num_tokens)
+        current_input_ids = input_ids
+        current_attention_mask = attention_mask
+        
         with tqdm(total=num_tokens, desc="Generating tokens", disable=not debug) as pbar:
-            while len(output_tokens) < num_tokens:
+            for token_idx in range(num_tokens):
                 # Forward pass with proper attention mask
                 with torch.no_grad():
                     outputs = self.original_model(
-                        input_ids=input_ids,
-                        attention_mask=attention_mask,
+                        input_ids=current_input_ids,
+                        attention_mask=current_attention_mask,
                         use_cache=True,
                         return_dict=True,
                         past_key_values=past_key_values
                     )
                     logits = outputs.logits[:, -1, :]
                     probs = torch.softmax(logits / self.temperature, dim=-1)
-                    if self.original_model.config.model_type == "llama":
-                        past_key_values = outputs.past_key_values
+                    past_key_values = outputs.past_key_values
     
                 sorted_probs, sorted_indices = torch.sort(probs[0], descending=True)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
@@ -213,18 +241,13 @@ class TokenWatermarkModel:
                 token_hash = self.hash_function(token_id)
                 hashed_output_tokens_seq.append(token_hash)
                 
-                # generate next token
-                if self.original_model.config.model_type == "llama":
-                    next_token_tensor = torch.tensor([[token_id]], device=self.device)
-                    input_ids = next_token_tensor
-                else:
-                    next_token_tensor = torch.tensor([[token_id]], device=self.device)
-                    input_ids = torch.cat([input_ids, next_token_tensor], dim=1)
-                # attention_mask = torch.cat([attention_mask, torch.ones_like(next_token_tensor)], dim=1)
-                attention_mask = torch.ones_like(next_token_tensor)
-                
                 # Store the generated token
                 output_tokens.append(token_id)
+                
+                # Prepare next token for next iteration (KV cache optimization)
+                next_token_tensor = torch.tensor([[token_id]], device=self.device)
+                current_input_ids = next_token_tensor  # Only pass the new token
+                current_attention_mask = torch.ones_like(next_token_tensor)  # Simple mask for new token
                 
                 # update PRC index
                 self.prc_index += 1

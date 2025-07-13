@@ -10,14 +10,14 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-
+import copy
 from tqdm import tqdm
 
 from src.prc import Encode, KeyGen
 
 class XORWatermarkModel:
     def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, 
-                 vocab_size=None, temperature=1.0, top_p=0.9, group_size=2):
+                 vocab_size=None, temperature=1.0, top_p=0.9, group_size=2, model_id=None):
         """
         Args:
             original_model: The original language model.
@@ -29,6 +29,7 @@ class XORWatermarkModel:
             temperature: The temperature for the model.
             top_p: The cumulative probability for top-p sampling.
             group_size: Number of tokens to generate per codeword bit.
+            model_id: The model ID for determining cache type.
         """
         self.original_model = original_model
         self.tokenizer = tokenizer
@@ -39,6 +40,7 @@ class XORWatermarkModel:
         X_pm1 = Encode(encoding_key)
         self.prc_codeword = ((1 - X_pm1) / 2).long()
         self.temperature = temperature
+        self.model_id = model_id
 
         self.vocab_size = vocab_size
         self.token_hashes = torch.randint(0, 2, (self.vocab_size,), device=self.device)
@@ -54,6 +56,30 @@ class XORWatermarkModel:
         self.prc_index = 0
         self.top_p = top_p
         
+    def _initialize_cache(self, input_ids, max_tokens):
+        """Initialize KV cache based on model type."""
+        # Check if this is a Gemma-3 model that needs HybridCache
+        if self.model_id and "gemma-3" in self.model_id.lower():
+            try:
+                from transformers import HybridCache
+                # Calculate max cache length (input + max_tokens)
+                max_cache_length = input_ids.shape[1] + max_tokens
+                
+                past_key_values = HybridCache(
+                    config=self.original_model.config,
+                    max_batch_size=1,
+                    max_cache_len=max_cache_length,
+                    device=self.device,
+                    dtype=self.dtype
+                )
+                print(f"Using HybridCache for Gemma-3 model with max_cache_len={max_cache_length}")
+                return past_key_values
+            except ImportError:
+                print("HybridCache not available, falling back to regular caching")
+                return None
+        else:
+            return None
+
     def generate_token_group(self, input_ids, attention_mask, past_key_values, target_bit, top_p=None, greedy=False, debug=False, skip_xor_check=False):
         """
         Generate a group of tokens and check if their XOR matches the target bit.
@@ -88,8 +114,8 @@ class XORWatermarkModel:
                 )
                 logits = outputs.logits[:, -1, :]
                 probs = torch.softmax(logits / self.temperature, dim=-1)
-                if self.original_model.config.model_type == "llama":
-                    current_past_key_values = outputs.past_key_values
+                # Update KV cache for all models
+                current_past_key_values = outputs.past_key_values
 
             sorted_probs, sorted_indices = torch.sort(probs[0], descending=True)
             cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
@@ -119,13 +145,9 @@ class XORWatermarkModel:
             group_tokens.append(token_id)
             group_hashes.append(token_hash)
             
-            # Update input for next token in group
             next_token_tensor = torch.tensor([[token_id]], device=self.device)
-            if self.original_model.config.model_type == "llama":
-                current_input_ids = next_token_tensor
-            else:
-                current_input_ids = torch.cat([current_input_ids, next_token_tensor], dim=1)
-            current_attention_mask = torch.ones_like(next_token_tensor)
+            current_input_ids = next_token_tensor
+            current_attention_mask = torch.cat([current_attention_mask, torch.ones_like(next_token_tensor)], dim=1)
         
         # Compute XOR of group hashes
         group_xor = 0
@@ -172,8 +194,10 @@ class XORWatermarkModel:
             input_ids = input_ids[:, -max_position_embeddings:]
             attention_mask = attention_mask[:, -max_position_embeddings:]
 
-        # KV cache
-        past_key_values = None
+        # Initialize KV cache based on model type
+        # Calculate total tokens we might generate (with retries)
+        estimated_max_tokens = num_codeword_bits * self.group_size * 10
+        past_key_values = self._initialize_cache(input_ids, estimated_max_tokens)
         
         if debug:
             self.retry_count = 0
@@ -188,13 +212,15 @@ class XORWatermarkModel:
                 retries_for_this_group = 0
                 group_generated = False
                 
+                kv_cache_before_group_attempt = copy.deepcopy(past_key_values)
                 while not group_generated and retries_for_this_group < max_retries_per_group:
-                    group_tokens, input_ids, attention_mask, past_key_values, retry_needed = self.generate_token_group(
-                        input_ids, attention_mask, past_key_values, target_bit, top_p, greedy, debug
+                    group_tokens, input_ids, attention_mask, updated_past_key_values, retry_needed = self.generate_token_group(
+                        input_ids, attention_mask, kv_cache_before_group_attempt, target_bit, top_p, greedy, debug
                     )
                     
                     if not retry_needed:
                         # Success! Add tokens to output
+                        past_key_values = updated_past_key_values
                         output_tokens.extend(group_tokens)
                         group_generated = True
                         

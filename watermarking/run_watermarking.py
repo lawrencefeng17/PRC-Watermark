@@ -65,7 +65,7 @@ def main():
     parser = argparse.ArgumentParser(description="Run different watermarking methods")
     # parser.add_argument("--model_id", type=str, default="meta-llama/Llama-3.2-1B-Instruct", help="Model ID from HuggingFace")
     parser.add_argument("--model_id", type=str, default="google/gemma-3-1b-it", help="Model ID from HuggingFace")
-    parser.add_argument("--prompt", type=str, default="Write a thrilling story about a murder investigation in an old mansion.", help="Prompt for text generation")
+    parser.add_argument("--prompt", type=str, default="""Write an extensive, winding summary and analysis of the Brothers Karamazov.""", help="Prompt for text generation")
     parser.add_argument("--num_tokens", type=int, default=2**10, help="Number of tokens to generate")
     parser.add_argument("--n", type=int, default=2**10, help="Length of the PRC codeword")
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
@@ -80,7 +80,7 @@ def main():
     parser.add_argument("--prc_t", type=int, default=3, help="Sparsity of the parity-check matrix")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with more verbose logging and plots", default=True)
     parser.add_argument("--new", action="store_true", help="Force generation of new text even if cached version exists", default=True)
-    parser.add_argument("--group_size", type=int, default=2, help="Group size for XOR watermarking (number of tokens per codeword bit)")
+    parser.add_argument("--group_size", type=int, default=4, help="Group size for XOR watermarking (number of tokens per codeword bit)")
     
     args = parser.parse_args()
     
@@ -369,7 +369,8 @@ def main():
                 tokenizer=tokenizer,
                 vocab_size=model.config.vocab_size,
                 temperature=args.temperature,
-                top_p=args.top_p
+                top_p=args.top_p,
+                model_id=args.model_id
             )
             
             # Generate watermarked text
@@ -499,7 +500,7 @@ def main():
                 tokenizer=tokenizer,
                 vocab_size=model.config.vocab_size,
                 temperature=args.temperature,
-                top_p=args.top_p
+                top_p=args.top_p,
             )
             
             # Generate watermarked text
@@ -634,7 +635,8 @@ def main():
                 vocab_size=model.config.vocab_size,
                 temperature=args.temperature,
                 top_p=args.top_p,
-                group_size=args.group_size
+                group_size=args.group_size,
+                model_id=args.model_id
             )
             
             # Calculate number of codeword bits - use the PRC codeword length
@@ -656,7 +658,6 @@ def main():
                 max_retries_per_group=50
             )
             generation_time = time.time() - start_time_xor
-            breakpoint()
             
             # Save the tokens and XOR data
             with open(output_tokens_path, 'wb') as f:
