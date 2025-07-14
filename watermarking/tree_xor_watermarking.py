@@ -33,6 +33,7 @@ from typing import Any
 from dataclasses import dataclass
 from src.prc import Encode, KeyGen
 import heapq
+from collections import defaultdict
 
 @dataclass
 class Node:
@@ -103,47 +104,72 @@ class TreeXORWatermarkModel:
         )
         if self.needs_cache_position:
             kwargs["cache_position"] = torch.tensor([pos], device=self.device)
-        outs = self.original_model(**kwargs)
+        outs = self.originl_model(**kwargs)
         return outs.logits[:, -1], outs.past_key_values
 
     def _expand_frontier(self, frontier: list[Node], base_sequence: torch.Tensor) -> list[Node]:
-        """
-        Expand a node into a list of children, using recomputation instead of KV caching.
-        This trades computation for memory efficiency.
-        """
         all_children = []
         
-        # Process each node in the frontier
-        for parent in frontier:
-            # Reconstruct full sequence for this node
-            if len(parent.prefix) == 1:
-                # Root node - just use base sequence
-                full_sequence = base_sequence
-            else:
-                # Build sequence: base_sequence + parent.prefix[1:]
-                parent_tokens = torch.tensor(parent.prefix[1:], device=self.device).unsqueeze(0)
-                full_sequence = torch.cat([base_sequence, parent_tokens], dim=1)
+        # Group nodes by prefix length for batching
+        nodes_by_length = defaultdict(list)
+        for node in frontier:
+            nodes_by_length[len(node.prefix)].append(node)
+        
+        # Process each length group in batch
+        for prefix_len, nodes in nodes_by_length.items():
+            if not nodes:
+                continue
+                
+            # Construct batch of sequences
+            batch_sequences = []
+            for node in nodes:
+                if len(node.prefix) == 1:
+                    seq = base_sequence
+                else:
+                    parent_tokens = torch.tensor(node.prefix[1:], device=self.device).unsqueeze(0)
+                    seq = torch.cat([base_sequence, parent_tokens], dim=1)
+                batch_sequences.append(seq)
             
-            # Run model on full sequence (no KV caching)
+            # Pad sequences to same length for batching
+            max_len = max(seq.shape[1] for seq in batch_sequences)
+            padded_batch = []
+            for seq in batch_sequences:
+                if seq.shape[1] < max_len:
+                    padding = torch.zeros(1, max_len - seq.shape[1], dtype=seq.dtype, device=seq.device)
+                    seq = torch.cat([seq, padding], dim=1)
+                padded_batch.append(seq)
+            
+            # Stack into batch
+            batch_input = torch.cat(padded_batch, dim=0)  # Shape: [batch_size, max_len]
+            
+            # Single batched model call
             with torch.no_grad():
                 outputs = self.original_model(
-                    input_ids=full_sequence,
+                    input_ids=batch_input,
                     use_cache=False,
                     return_dict=True,
                 )
-                logits = outputs.logits[:, -1, :]  # Get last token logits
+                batch_logits = outputs.logits[:, -1, :]  # Shape: [batch_size, vocab_size]
             
-            # Get top-k candidates
-            topk_probs, topk_idx = torch.topk(F.softmax(logits / self.temperature, -1), self.top_k)
+            # Get top-k for each sequence in batch
+            topk_probs, topk_idx = torch.topk(
+                F.softmax(batch_logits / self.temperature, -1), 
+                self.top_k, dim=-1
+            )  # Shape: [batch_size, top_k]
             
-            # Create children
-            for p, idx in zip(topk_probs.squeeze(0).tolist(), topk_idx.squeeze(0).tolist()):
-                child = Node(
-                    prefix=parent.prefix + [idx],
-                    logp=parent.logp + math.log(p),
-                )
-                all_children.append(child)
+            # Create children for each parent node
+            for i, parent in enumerate(nodes):
+                for j in range(self.top_k):
+                    prob = topk_probs[i, j].item()
+                    token_id = topk_idx[i, j].item()
+                    
+                    child = Node(
+                        prefix=parent.prefix + [token_id],
+                        logp=parent.logp + math.log(prob),
+                    )
+                    all_children.append(child)
         
+        # Apply beam search pruning
         if self.beam_size is not None:
             all_children = heapq.nlargest(self.beam_size, all_children, key=lambda n: n.logp)
         

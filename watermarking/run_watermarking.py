@@ -72,7 +72,7 @@ def main():
     parser.add_argument("--n", type=int, default=2**10, help="Length of the PRC codeword")
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
     parser.add_argument("--top_p", type=float, default=1.00, help="Top-p sampling parameter")
-    parser.add_argument("--top_k", type=int, default=5, help="Top-k sampling parameter")
+    parser.add_argument("--top_k", type=int, default=20, help="Top-k sampling parameter")
     parser.add_argument("--greedy", action="store_true", help="Use greedy decoding")
     parser.add_argument("--methods", type=str, default="tree_xor", 
                         choices=["all", "binary", "token", "independent_hash", "xor", "tree_xor"],
