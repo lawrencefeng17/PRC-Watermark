@@ -72,6 +72,7 @@ def main():
     parser.add_argument("--n", type=int, default=2**10, help="Length of the PRC codeword")
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
     parser.add_argument("--top_p", type=float, default=1.00, help="Top-p sampling parameter")
+    parser.add_argument("--top_k", type=int, default=5, help="Top-k sampling parameter")
     parser.add_argument("--greedy", action="store_true", help="Use greedy decoding")
     parser.add_argument("--methods", type=str, default="tree_xor", 
                         choices=["all", "binary", "token", "independent_hash", "xor", "tree_xor"],
@@ -83,7 +84,7 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with more verbose logging and plots", default=True)
     parser.add_argument("--new", action="store_true", help="Force generation of new text even if cached version exists", default=True)
     parser.add_argument("--group_size", type=int, default=4, help="Group size for XOR watermarking (number of tokens per codeword bit)")
-    parser.add_argument("--beam_width", type=int, default=20, help="Beam width for Tree XOR watermarking")
+    parser.add_argument("--beam_width", type=int, default=None, help="Beam width for Tree XOR watermarking")
     
     args = parser.parse_args()
     
@@ -742,7 +743,7 @@ def main():
         log_message("\n=== Running Tree XOR Watermarking ===")
         
         output_tokens_path = os.path.join(tokens_dir, "tree_xor_tokens.pkl")
-        output_text_path = os.path.join(experiment_dir, "tree_xor_output.txt")
+        output_text_path = os.path.join(text_dir, "tree_xor_output.txt")
         
         if not os.path.exists(output_tokens_path):
             log_message("Initializing Tree XOR watermarking model...")
@@ -753,20 +754,17 @@ def main():
                 args.n,
                 tokenizer=tokenizer,
                 vocab_size=model.config.vocab_size,
-                temperature=args.temperature,
-                top_p=args.top_p,
                 group_size=args.group_size,
-                model_id=args.model_id
+                debug=args.debug
             )
             
             log_message("Generating watermarked text using Tree XOR method...")
             start_gen = time.time()
-            tree_xor_output_tokens, tree_xor_output_text, log_data = tree_xor_model.watermarked_generate(
+            tree_xor_output_tokens, tree_xor_output_text, xor_distribution_data, log_data = tree_xor_model.watermarked_generate(
                 inputs,
-                args.num_tokens,
-                top_p=args.top_p,
-                greedy=args.greedy,
-                debug=True,
+                args.n,
+                temperature=args.temperature,
+                top_k=args.top_k,
                 beam_width=args.beam_width
             )
             generation_time = time.time() - start_gen
@@ -776,11 +774,20 @@ def main():
             with open(output_tokens_path, 'wb') as f:
                 pickle.dump({
                     'tokens': tree_xor_output_tokens,
+                    'xor_distribution_data': xor_distribution_data,
                     'log_data': log_data
                 }, f)
             
             with open(output_text_path, 'w') as f:
                 f.write(tree_xor_output_text)
+
+            # save plots
+            save_plot_to_dir(f"tree_xor_larger_bucket_distribution.png")
+            save_plot_to_dir(f"tree_xor_bucket_entropy_distribution.png")
+            save_plot_to_dir(f"tree_xor_bucket_0_distribution.png")
+            save_plot_to_dir(f"tree_xor_bucket_1_distribution.png")
+            save_plot_to_dir(f"tree_xor_rejection_rate_vs_entropy.png")
+            save_plot_to_dir(f"tree_xor_rejections_vs_index.png")
                 
             log_message(f"Output text saved to {output_text_path}")
             
@@ -791,7 +798,7 @@ def main():
             
             log_message(f"Threshold: {threshold}, Hamming weight: {hamming_weight}")
             log_message(f"Detection result: {result}")
-            log_message(f"Baseline Hamming weight: {baseline_hamming_weight}")
+            log_message(f"Existing Hamming weight: {baseline_hamming_weight}")
             
             # Save detection results
             detection_path = os.path.join(experiment_dir, "tree_xor_detection_results.json")
@@ -804,8 +811,10 @@ def main():
                 "group_size": args.group_size,
                 "beam_width": args.beam_width,
                 "baseline_hamming_weight": float(baseline_hamming_weight),
-                "avg_weight_s0": float(np.mean(log_data["weight_s0"])),
-                "avg_weight_s1": float(np.mean(log_data["weight_s1"]))
+                "mean_bucket_0_prob": float(log_data["mean_bucket_0_prob"]),
+                "mean_bucket_1_prob": float(log_data["mean_bucket_1_prob"]),
+                "rejection_count": int(log_data["rejection_count"]),
+                "rejection_rate": float(log_data["rejection_rate"]),
             }
             with open(detection_path, 'w') as f:
                 json.dump(detection_results, f, indent=2)

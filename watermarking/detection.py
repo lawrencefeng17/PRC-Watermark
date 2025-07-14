@@ -391,7 +391,7 @@ def detect_tree_xor_watermark(model, watermarked_text):
     # The final syndrome is the XOR of the two
     final_syndrome = (Px + Pz) % 2
     
-    hamming_weight = int(torch.sum(final_syndrome).item())
+    hamming_weight = np.sum(final_syndrome)
     
     # Calculate the statistical threshold for detection
     threshold = (0.5 - r**(-0.25)) * r
