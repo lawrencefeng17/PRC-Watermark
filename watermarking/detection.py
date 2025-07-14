@@ -328,3 +328,75 @@ def compute_baseline_hamming_weight(model):
     result = hamming_weight < threshold
     
     return hamming_weight, threshold, result
+
+def detect_tree_xor_watermark(model, watermarked_text):
+    """
+    Detects if the provided text is watermarked using a group-based XOR scheme.
+
+    This function is agnostic to the generation method (rejection sampling or tree-based)
+    and works by verifying the underlying watermark structure. It processes tokens in
+    groups, computes the XOR of their hashes, and checks if the resulting bit
+    sequence correlates with the secret PRC codeword.
+
+    Args:
+        model: The watermarking model containing the hash function and decoding key.
+        watermarked_text: A list of token IDs to check.
+
+    Returns:
+        threshold (float): The detection threshold.
+        hamming_weight (int): The computed Hamming weight of the syndrome.
+        result (bool): True if the text is detected as watermarked, False otherwise.
+    """
+    hash_function = model.hash_function
+    group_size = model.group_size
+    
+    # Process tokens in groups and compute the XOR of their hashes
+    reconstructed_prc_bits = []
+    for i in range(0, len(watermarked_text), group_size):
+        group = watermarked_text[i:i + group_size]
+        
+        # If the last group is incomplete, it's ignored as it can't form a full bit.
+        if len(group) < group_size:
+            continue
+            
+        # Compute the XOR of the hashes for the tokens in the group
+        group_xor = 0
+        for token_id in group:
+            group_xor ^= hash_function(token_id)
+            
+        reconstructed_prc_bits.append(group_xor)
+    
+    reconstructed_prc_bits = torch.tensor(reconstructed_prc_bits, dtype=torch.float)
+    
+    # If not enough bits were generated to perform the check, we cannot detect.
+    if len(reconstructed_prc_bits) < model.n:
+        print(f"Warning: Not enough tokens to form a full PRC block. Need {model.n * group_size}, have {len(watermarked_text)}.")
+        return None, None, False
+
+    # Truncate if we have more bits than the PRC codeword length
+    if len(reconstructed_prc_bits) > model.n:
+        reconstructed_prc_bits = reconstructed_prc_bits[:model.n]
+        
+    # Apply the parity check matrix for detection
+    parity_check_matrix = model.decoding_key[1]
+    r = parity_check_matrix.shape[0]
+    
+    # Compute Px (syndrome of the reconstructed bits)
+    Px = (parity_check_matrix @ reconstructed_prc_bits) % 2
+    
+    # Compute Pz (syndrome of the one-time pad)
+    z = model.decoding_key[2]
+    Pz = (parity_check_matrix @ z) % 2
+    
+    # The final syndrome is the XOR of the two
+    final_syndrome = (Px + Pz) % 2
+    
+    hamming_weight = int(torch.sum(final_syndrome).item())
+    
+    # Calculate the statistical threshold for detection
+    threshold = (0.5 - r**(-0.25)) * r
+
+    # The watermark is detected if the Hamming weight is below the threshold
+    result = hamming_weight < threshold
+    
+    return threshold, hamming_weight, result   

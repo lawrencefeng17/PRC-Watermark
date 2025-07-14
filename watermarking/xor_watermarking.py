@@ -10,14 +10,14 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-import copy
+import inspect
 from tqdm import tqdm
-
+from transformers import HybridCache
 from src.prc import Encode, KeyGen
 
 class XORWatermarkModel:
     def __init__(self, original_model, encoding_key, decoding_key, n, tokenizer=None, 
-                 vocab_size=None, temperature=1.0, top_p=0.9, group_size=2, model_id=None):
+                 vocab_size=None, temperature=1.0, top_p=0.9, group_size=2):
         """
         Args:
             original_model: The original language model.
@@ -29,7 +29,6 @@ class XORWatermarkModel:
             temperature: The temperature for the model.
             top_p: The cumulative probability for top-p sampling.
             group_size: Number of tokens to generate per codeword bit.
-            model_id: The model ID for determining cache type.
         """
         self.original_model = original_model
         self.tokenizer = tokenizer
@@ -40,7 +39,6 @@ class XORWatermarkModel:
         X_pm1 = Encode(encoding_key)
         self.prc_codeword = ((1 - X_pm1) / 2).long()
         self.temperature = temperature
-        self.model_id = model_id
 
         self.vocab_size = vocab_size
         self.token_hashes = torch.randint(0, 2, (self.vocab_size,), device=self.device)
@@ -53,34 +51,32 @@ class XORWatermarkModel:
         assert len(self.prc_codeword) == n
         self.n = n
 
+        sig = inspect.signature(self.original_model.forward)
+        self.needs_cache_position = "cache_position" in sig.parameters
+        self.use_hybrid_cache = any(
+            k in original_model.name_or_path.lower()
+            for k in ["gemma-2", "gemma-3"]
+        )
+
         self.prc_index = 0
         self.top_p = top_p
         
-    def _initialize_cache(self, input_ids, max_tokens):
-        """Initialize KV cache based on model type."""
-        # Check if this is a Gemma-3 model that needs HybridCache
-        if self.model_id and "gemma-3" in self.model_id.lower():
-            try:
-                from transformers import HybridCache
-                # Calculate max cache length (input + max_tokens)
-                max_cache_length = input_ids.shape[1] + max_tokens
-                
-                past_key_values = HybridCache(
-                    config=self.original_model.config,
-                    max_batch_size=1,
-                    max_cache_len=max_cache_length,
-                    device=self.device,
-                    dtype=self.dtype
-                )
-                print(f"Using HybridCache for Gemma-3 model with max_cache_len={max_cache_length}")
-                return past_key_values
-            except ImportError:
-                print("HybridCache not available, falling back to regular caching")
-                return None
-        else:
-            return None
+    def sample_top_p(self, probs: torch.Tensor, top_p: float, greedy: bool = False) -> int:
+        """Return a single token id sampled with nucleus (p) sampling."""
+        sorted_probs, sorted_idx = torch.sort(probs, descending=True)
+        cumprobs = torch.cumsum(sorted_probs, dim=-1)
+        cut = (cumprobs > top_p).nonzero(as_tuple=False)
+        last = cut[0, 0] if cut.numel() else len(sorted_probs) - 1
+        mask = sorted_probs.new_zeros(sorted_probs.size(), dtype=torch.bool)
+        mask[: last + 1] = True
+        filtered_p = sorted_probs[mask]
+        filtered_i = sorted_idx[mask]
+        filtered_p = filtered_p / filtered_p.sum()
+        if greedy:
+            return filtered_i[torch.argmax(filtered_p)].item()
+        return filtered_i[torch.multinomial(filtered_p, 1)].item()
 
-    def generate_token_group(self, input_ids, attention_mask, past_key_values, target_bit, top_p=None, greedy=False, debug=False, skip_xor_check=False):
+    def generate_token_group(self, input_ids, attention_mask, past_key_values, target_bit, top_p=None, greedy=False, debug=False, skip_xor_check=False, token_offset=0):
         """
         Generate a group of tokens and check if their XOR matches the target bit.
         
@@ -105,49 +101,31 @@ class XORWatermarkModel:
         # Generate group_size tokens
         for i in range(self.group_size):
             with torch.no_grad():
-                outputs = self.original_model(
-                    input_ids=current_input_ids,
-                    attention_mask=current_attention_mask,
+                kwargs = dict(
+                    input_ids=current_input_ids,      
+                    past_key_values=current_past_key_values,
                     use_cache=True,
                     return_dict=True,
-                    past_key_values=current_past_key_values
                 )
-                logits = outputs.logits[:, -1, :]
-                probs = torch.softmax(logits / self.temperature, dim=-1)
-                # Update KV cache for all models
-                current_past_key_values = outputs.past_key_values
+                if self.needs_cache_position:
+                    # absolute position of *this* token
+                    cache_pos = torch.tensor([token_offset + i], device=self.device)
+                    kwargs["cache_position"] = cache_pos
+                outputs = self.original_model(**kwargs)
 
-            sorted_probs, sorted_indices = torch.sort(probs[0], descending=True)
-            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-            
-            top_p_mask = cumulative_probs < top_p
-            # Include the first token that exceeds top_p, or all if sum < top_p
-            if top_p_mask.sum() < len(sorted_probs):
-                top_p_mask[top_p_mask.sum()] = True 
-            else:
-                pass  # top_p_mask already includes all tokens if sum < top_p
+            logits = outputs.logits[:, -1] / self.temperature
+            probs = F.softmax(logits, dim=-1)
 
-            top_p_indices = sorted_indices[top_p_mask]
-            top_p_probs = sorted_probs[top_p_mask]
-            
-            # Normalize
-            top_p_probs = top_p_probs / torch.sum(top_p_probs)
-
-            # Sample token from top-p distribution
-            if greedy:
-                sampled_relative_index = torch.argmax(top_p_probs).item()
-            else:
-                sampled_relative_index = torch.multinomial(top_p_probs, num_samples=1).item()
-            
-            token_id = top_p_indices[sampled_relative_index].item()
+            token_id = self.sample_top_p(probs[0], top_p, greedy)
             token_hash = self.hash_function(token_id)
-            
             group_tokens.append(token_id)
             group_hashes.append(token_hash)
-            
+
+            # prepare next step: feed *only* the newly sampled token
             next_token_tensor = torch.tensor([[token_id]], device=self.device)
             current_input_ids = next_token_tensor
-            current_attention_mask = torch.cat([current_attention_mask, torch.ones_like(next_token_tensor)], dim=1)
+            current_attention_mask = None               # no need after pre-fill
+            current_past_key_values = outputs.past_key_values
         
         # Compute XOR of group hashes
         group_xor = 0
@@ -187,18 +165,30 @@ class XORWatermarkModel:
         # Initialize attention mask
         attention_mask = torch.ones_like(input_ids).to(self.device)
         
-        # Get model configuration
-        config = self.original_model.config
-        max_position_embeddings = getattr(config, 'max_position_embeddings', None)
-        if max_position_embeddings and input_ids.shape[1] > max_position_embeddings:
-            input_ids = input_ids[:, -max_position_embeddings:]
-            attention_mask = attention_mask[:, -max_position_embeddings:]
+        past_key_values = None
+        if self.use_hybrid_cache:
+            past_key_values = HybridCache(
+                config=self.original_model.config,
+                max_batch_size=1,
+                max_cache_len=input_ids.shape[1] + num_codeword_bits * self.group_size,
+                device=self.device,
+                dtype=self.dtype,
+            )
 
-        # Initialize KV cache based on model type
-        # Calculate total tokens we might generate (with retries)
-        estimated_max_tokens = num_codeword_bits * self.group_size * 10
-        past_key_values = self._initialize_cache(input_ids, estimated_max_tokens)
-        
+        prefill_len = input_ids.shape[1]
+        with torch.no_grad():
+            outputs = self.original_model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                use_cache=True,
+                return_dict=True,
+                past_key_values=past_key_values,
+            )
+            past_key_values = outputs.past_key_values
+
+        input_ids = input_ids[:, -1:]
+        attention_mask = None
+
         if debug:
             self.retry_count = 0
             self.total_groups = 0
@@ -212,15 +202,13 @@ class XORWatermarkModel:
                 retries_for_this_group = 0
                 group_generated = False
                 
-                kv_cache_before_group_attempt = copy.deepcopy(past_key_values)
                 while not group_generated and retries_for_this_group < max_retries_per_group:
-                    group_tokens, input_ids, attention_mask, updated_past_key_values, retry_needed = self.generate_token_group(
-                        input_ids, attention_mask, kv_cache_before_group_attempt, target_bit, top_p, greedy, debug
+                    group_tokens, input_ids, attention_mask, past_key_values, retry_needed = self.generate_token_group(
+                        input_ids, attention_mask, past_key_values, target_bit, top_p, greedy, debug, token_offset=prefill_len + len(output_tokens)
                     )
                     
                     if not retry_needed:
                         # Success! Add tokens to output
-                        past_key_values = updated_past_key_values
                         output_tokens.extend(group_tokens)
                         group_generated = True
                         
@@ -247,7 +235,7 @@ class XORWatermarkModel:
                     print(f"Warning: Failed to generate group after {max_retries_per_group} retries for bit {bit_index}")
                     # Generate tokens anyway without XOR constraint
                     group_tokens, input_ids, attention_mask, past_key_values, _ = self.generate_token_group(
-                        input_ids, attention_mask, past_key_values, target_bit, top_p, greedy, debug, skip_xor_check=True
+                        input_ids, attention_mask, past_key_values, target_bit, top_p, greedy, debug, skip_xor_check=True, token_offset=prefill_len + len(output_tokens)
                     )
                     output_tokens.extend(group_tokens)
                     

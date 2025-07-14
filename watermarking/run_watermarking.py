@@ -39,11 +39,13 @@ from watermarking.binary_watermarking import BinaryWatermarkModel
 from watermarking.token_watermarking import TokenWatermarkModel
 from watermarking.independent_token_watermarking import IndependentHashModel
 from watermarking.xor_watermarking import XORWatermarkModel
+from watermarking.tree_xor_watermarking import TreeXORWatermarkModel
 from watermarking.detection import (
     detect_binary_text_watermark,
     detect_token_watermark,
     detect_independent_hash_watermark,
     detect_xor_watermark,
+    detect_tree_xor_watermark,
     compute_baseline_hamming_weight,
 )
 
@@ -71,8 +73,8 @@ def main():
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature")
     parser.add_argument("--top_p", type=float, default=1.00, help="Top-p sampling parameter")
     parser.add_argument("--greedy", action="store_true", help="Use greedy decoding")
-    parser.add_argument("--methods", type=str, default="token", 
-                        choices=["all", "binary", "token", "independent_hash", "xor"],
+    parser.add_argument("--methods", type=str, default="tree_xor", 
+                        choices=["all", "binary", "token", "independent_hash", "xor", "tree_xor"],
                         help="Which method to run")
     parser.add_argument("--experiment_id", type=str, default=None, help="Experiment ID for key management")
     parser.add_argument("--output_dir", type=str, default="experiments", help="Directory to save the results")
@@ -81,6 +83,7 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug mode with more verbose logging and plots", default=True)
     parser.add_argument("--new", action="store_true", help="Force generation of new text even if cached version exists", default=True)
     parser.add_argument("--group_size", type=int, default=4, help="Group size for XOR watermarking (number of tokens per codeword bit)")
+    parser.add_argument("--beam_width", type=int, default=20, help="Beam width for Tree XOR watermarking")
     
     args = parser.parse_args()
     
@@ -635,8 +638,7 @@ def main():
                 vocab_size=model.config.vocab_size,
                 temperature=args.temperature,
                 top_p=args.top_p,
-                group_size=args.group_size,
-                model_id=args.model_id
+                group_size=args.group_size
             )
             
             # Calculate number of codeword bits - use the PRC codeword length
@@ -655,7 +657,7 @@ def main():
                 top_p=args.top_p,
                 greedy=args.greedy,
                 debug=args.debug,
-                max_retries_per_group=50
+                max_retries_per_group=20
             )
             generation_time = time.time() - start_time_xor
             
@@ -734,6 +736,99 @@ def main():
                     log_message("Loaded existing detection results")
             else:
                 log_message("Warning: Detection results not found")
+
+    # Test Tree XOR Watermarking
+    if args.methods == "all" or args.methods == "tree_xor":
+        log_message("\n=== Running Tree XOR Watermarking ===")
+        
+        output_tokens_path = os.path.join(tokens_dir, "tree_xor_tokens.pkl")
+        output_text_path = os.path.join(experiment_dir, "tree_xor_output.txt")
+        
+        if not os.path.exists(output_tokens_path):
+            log_message("Initializing Tree XOR watermarking model...")
+            tree_xor_model = TreeXORWatermarkModel(
+                model,
+                encoding_key,
+                decoding_key,
+                args.n,
+                tokenizer=tokenizer,
+                vocab_size=model.config.vocab_size,
+                temperature=args.temperature,
+                top_p=args.top_p,
+                group_size=args.group_size,
+                model_id=args.model_id
+            )
+            
+            log_message("Generating watermarked text using Tree XOR method...")
+            start_gen = time.time()
+            tree_xor_output_tokens, tree_xor_output_text, log_data = tree_xor_model.watermarked_generate(
+                inputs,
+                args.num_tokens,
+                top_p=args.top_p,
+                greedy=args.greedy,
+                debug=True,
+                beam_width=args.beam_width
+            )
+            generation_time = time.time() - start_gen
+            log_message(f"Generation completed in {generation_time:.2f} seconds")
+            
+            # Save outputs
+            with open(output_tokens_path, 'wb') as f:
+                pickle.dump({
+                    'tokens': tree_xor_output_tokens,
+                    'log_data': log_data
+                }, f)
+            
+            with open(output_text_path, 'w') as f:
+                f.write(tree_xor_output_text)
+                
+            log_message(f"Output text saved to {output_text_path}")
+            
+            # Detect watermark
+            log_message("Detecting watermark...")
+            threshold, hamming_weight, result = detect_tree_xor_watermark(tree_xor_model, tree_xor_output_tokens)
+            baseline_hamming_weight, baseline_threshold, baseline_result = compute_baseline_hamming_weight(tree_xor_model)
+            
+            log_message(f"Threshold: {threshold}, Hamming weight: {hamming_weight}")
+            log_message(f"Detection result: {result}")
+            log_message(f"Baseline Hamming weight: {baseline_hamming_weight}")
+            
+            # Save detection results
+            detection_path = os.path.join(experiment_dir, "tree_xor_detection_results.json")
+            detection_results = {
+                "threshold": float(threshold),
+                "hamming_weight": float(hamming_weight),
+                "detection_result": bool(result),
+                "generation_time": generation_time,
+                "method": "tree_xor",
+                "group_size": args.group_size,
+                "beam_width": args.beam_width,
+                "baseline_hamming_weight": float(baseline_hamming_weight),
+                "avg_weight_s0": float(np.mean(log_data["weight_s0"])),
+                "avg_weight_s1": float(np.mean(log_data["weight_s1"]))
+            }
+            with open(detection_path, 'w') as f:
+                json.dump(detection_results, f, indent=2)
+                
+            # Save to overall results
+            results["methods"]["tree_xor"] = detection_results
+            
+        else:
+            log_message(f"Using existing Tree XOR output from {output_tokens_path}")
+            with open(output_tokens_path, 'rb') as f:
+                pickle_data = pickle.load(f)
+                tree_xor_output_tokens = pickle_data['tokens']
+                tree_xor_output_text = tokenizer.decode(tree_xor_output_tokens)
+                
+            # Load detection results if they exist
+            detection_path = os.path.join(experiment_dir, "tree_xor_detection_results.json")
+            if os.path.exists(detection_path):
+                with open(detection_path, 'r') as f:
+                    results["methods"]["tree_xor"] = json.load(f)
+                    log_message("Loaded existing detection results")
+            else:
+                log_message("Warning: Detection results not found")
+            
     
     # Record experiment end time
     end_time = datetime.datetime.now()

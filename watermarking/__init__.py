@@ -17,7 +17,7 @@ from .binary_watermarking import BinaryWatermarkModel
 from .token_watermarking import TokenWatermarkModel
 from .independent_token_watermarking import IndependentHashModel
 from .xor_watermarking import XORWatermarkModel
-
+from .tree_xor_watermarking import TreeXORWatermarkModel
 # Import detection functions
 from .detection import (
     detect_binary_watermark,
@@ -25,7 +25,8 @@ from .detection import (
     detect_token_watermark,
     detect_independent_hash_watermark,
     detect_xor_watermark,
-    regenerate_independent_hash_functions
+    regenerate_independent_hash_functions,
+    detect_tree_xor_watermark
 )
 
 __all__ = [
@@ -34,12 +35,13 @@ __all__ = [
     'TokenWatermarkModel',
     'IndependentHashModel',
     'XORWatermarkModel',
-    
+    'TreeXORWatermarkModel',
     # Detection functions
     'detect_binary_watermark',
     'detect_binary_text_watermark',
     'detect_token_watermark',
     'detect_independent_hash_watermark',
     'detect_xor_watermark',
-    'regenerate_independent_hash_functions'
+    'regenerate_independent_hash_functions',
+    'detect_tree_xor_watermark'
 ] 
