@@ -1,0 +1,66 @@
+{
+  "experiment_id": "watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False",
+  "timestamp": "20250714_071512_618718",
+  "start_time": "2025-07-14 07:15:16",
+  "end_time": "2025-07-14 07:23:09",
+  "duration_seconds": 472.833536,
+  "parameters": {
+    "model_id": "google/gemma-3-1b-it",
+    "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words.",
+    "num_tokens": 1024,
+    "n": 512,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 20,
+    "greedy": false,
+    "methods": "tree_xor",
+    "experiment_id": null,
+    "output_dir": "tree_xor_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true,
+    "group_size": 2,
+    "beam_width": null
+  },
+  "results": {
+    "config": {
+      "model_id": "google/gemma-3-1b-it",
+      "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words.",
+      "num_tokens": 1024,
+      "n": 512,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 20,
+      "greedy": false,
+      "methods": "tree_xor",
+      "experiment_id": null,
+      "output_dir": "tree_xor_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true,
+      "group_size": 2,
+      "beam_width": null
+    },
+    "methods": {
+      "tree_xor": {
+        "threshold": 126.2855905392411,
+        "hamming_weight": 207.0,
+        "detection_result": false,
+        "generation_time": 472.78288531303406,
+        "method": "tree_xor",
+        "group_size": 2,
+        "beam_width": null,
+        "baseline_hamming_weight": 259.0,
+        "mean_bucket_0_prob": 0.4674875736236572,
+        "mean_bucket_1_prob": 0.5325124263763428,
+        "rejection_count": 139,
+        "rejection_rate": 0.271484375
+      }
+    }
+  },
+  "model_id": "google/gemma-3-1b-it",
+  "device": "cuda",
+  "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words."
+}

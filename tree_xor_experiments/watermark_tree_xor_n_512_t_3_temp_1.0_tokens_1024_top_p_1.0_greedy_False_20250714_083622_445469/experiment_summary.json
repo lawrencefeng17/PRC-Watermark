@@ -1,0 +1,66 @@
+{
+  "experiment_id": "watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False",
+  "timestamp": "20250714_083622_445469",
+  "start_time": "2025-07-14 08:36:26",
+  "end_time": "2025-07-14 08:44:20",
+  "duration_seconds": 474.014495,
+  "parameters": {
+    "model_id": "google/gemma-3-1b-it",
+    "prompt": "Describe the process of photosynthesis and its importance to life on Earth. Discuss theories on the relationship between evolution and photosynthesis. It should be over 4000 words.",
+    "num_tokens": 1024,
+    "n": 512,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 20,
+    "greedy": false,
+    "methods": "tree_xor",
+    "experiment_id": null,
+    "output_dir": "tree_xor_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true,
+    "group_size": 2,
+    "beam_width": null
+  },
+  "results": {
+    "config": {
+      "model_id": "google/gemma-3-1b-it",
+      "prompt": "Describe the process of photosynthesis and its importance to life on Earth. Discuss theories on the relationship between evolution and photosynthesis. It should be over 4000 words.",
+      "num_tokens": 1024,
+      "n": 512,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 20,
+      "greedy": false,
+      "methods": "tree_xor",
+      "experiment_id": null,
+      "output_dir": "tree_xor_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true,
+      "group_size": 2,
+      "beam_width": null
+    },
+    "methods": {
+      "tree_xor": {
+        "threshold": 126.2855905392411,
+        "hamming_weight": 222.0,
+        "detection_result": false,
+        "generation_time": 473.9574553966522,
+        "method": "tree_xor",
+        "group_size": 2,
+        "beam_width": null,
+        "baseline_hamming_weight": 252.0,
+        "mean_bucket_0_prob": 0.5089086294174194,
+        "mean_bucket_1_prob": 0.49109137058258057,
+        "rejection_count": 175,
+        "rejection_rate": 0.341796875
+      }
+    }
+  },
+  "model_id": "google/gemma-3-1b-it",
+  "device": "cuda",
+  "prompt": "Describe the process of photosynthesis and its importance to life on Earth. Discuss theories on the relationship between evolution and photosynthesis. It should be over 4000 words."
+}

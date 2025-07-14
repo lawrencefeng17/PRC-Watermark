@@ -1,0 +1,14 @@
+{
+  "threshold": 304.9780618373686,
+  "hamming_weight": 466.0,
+  "detection_result": false,
+  "generation_time": 1536.207144021988,
+  "method": "tree_xor",
+  "group_size": 2,
+  "beam_width": null,
+  "baseline_hamming_weight": 496.0,
+  "mean_bucket_0_prob": 0.5335428714752197,
+  "mean_bucket_1_prob": 0.4664571285247803,
+  "rejection_count": 393,
+  "rejection_rate": 0.3837890625
+}

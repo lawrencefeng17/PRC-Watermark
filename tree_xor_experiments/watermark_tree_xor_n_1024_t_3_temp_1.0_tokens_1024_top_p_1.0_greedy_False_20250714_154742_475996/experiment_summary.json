@@ -1,0 +1,66 @@
+{
+  "experiment_id": "watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False",
+  "timestamp": "20250714_154742_475996",
+  "start_time": "2025-07-14 15:47:46",
+  "end_time": "2025-07-14 16:13:23",
+  "duration_seconds": 1537.124068,
+  "parameters": {
+    "model_id": "google/gemma-3-1b-it",
+    "prompt": "Discuss methods for controlling the development of artificial intelligence. Then do analysis of the pros and cons of control. It should be over 4000 words.",
+    "num_tokens": 1024,
+    "n": 1024,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 20,
+    "greedy": false,
+    "methods": "tree_xor",
+    "experiment_id": null,
+    "output_dir": "tree_xor_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true,
+    "group_size": 2,
+    "beam_width": null
+  },
+  "results": {
+    "config": {
+      "model_id": "google/gemma-3-1b-it",
+      "prompt": "Discuss methods for controlling the development of artificial intelligence. Then do analysis of the pros and cons of control. It should be over 4000 words.",
+      "num_tokens": 1024,
+      "n": 1024,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 20,
+      "greedy": false,
+      "methods": "tree_xor",
+      "experiment_id": null,
+      "output_dir": "tree_xor_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true,
+      "group_size": 2,
+      "beam_width": null
+    },
+    "methods": {
+      "tree_xor": {
+        "threshold": 304.9780618373686,
+        "hamming_weight": 477.0,
+        "detection_result": false,
+        "generation_time": 1537.0636665821075,
+        "method": "tree_xor",
+        "group_size": 2,
+        "beam_width": null,
+        "baseline_hamming_weight": 502.0,
+        "mean_bucket_0_prob": 0.47705912590026855,
+        "mean_bucket_1_prob": 0.5229408740997314,
+        "rejection_count": 343,
+        "rejection_rate": 0.3349609375
+      }
+    }
+  },
+  "model_id": "google/gemma-3-1b-it",
+  "device": "cuda",
+  "prompt": "Discuss methods for controlling the development of artificial intelligence. Then do analysis of the pros and cons of control. It should be over 4000 words."
+}

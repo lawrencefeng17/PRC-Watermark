@@ -1,0 +1,33 @@
+Experiment ID: watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False
+Timestamp: 20250714_094937_404223
+Parameters: {'model_id': 'google/gemma-3-1b-it', 'prompt': 'Discuss methods for controlling the development of artificial intelligence. Then do analysis of the pros and cons of control. It should be over 4000 words.', 'num_tokens': 1024, 'n': 512, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 20, 'greedy': False, 'methods': 'tree_xor', 'experiment_id': None, 'output_dir': 'tree_xor_experiments', 'fpr': 1e-05, 'prc_t': 3, 'debug': True, 'new': True, 'group_size': 2, 'beam_width': None}
+Loading model...
+Cleared CUDA cache after model loading.
+Model loaded on cuda
+Prompt: Discuss methods for controlling the development of artificial intelligence. Then do analysis of the pros and cons of control. It should be over 4000 words.
+Setting up PRC keys for watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False
+PRC keys set up
+Saved key to tree_xor_experiments/watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_20250714_094937_404223/watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_key.pkl
+Generation started at: 2025-07-14 09:49:41
+
+=== Running Tree XOR Watermarking ===
+Initializing Tree XOR watermarking model...
+Generating watermarked text using Tree XOR method...
+Generation completed in 476.47 seconds
+Warning: Plot file tree_xor_larger_bucket_distribution.png not found, skipping
+Output text saved to tree_xor_experiments/watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_20250714_094937_404223/text/tree_xor_output.txt
+Detecting watermark...
+Threshold: 126.2855905392411, Hamming weight: 200.0
+Detection result: False
+Existing Hamming weight: 258
+Experiment completed at: 2025-07-14 09:57:37
+Total duration: 0:07:56.517950
+
+=== Experiment Summary ===
+
+TREE_XOR Watermarking:
+  Watermark detected: False
+  Hamming weight: 200.0 (threshold: 126.2855905392411)
+  Rejection rate: 0.3047
+
+Results saved to: tree_xor_experiments/watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_20250714_094937_404223

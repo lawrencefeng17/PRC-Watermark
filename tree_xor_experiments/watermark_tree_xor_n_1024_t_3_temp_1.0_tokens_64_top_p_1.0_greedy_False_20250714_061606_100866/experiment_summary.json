@@ -1,0 +1,66 @@
+{
+  "experiment_id": "watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_64_top_p_1.0_greedy_False",
+  "timestamp": "20250714_061606_100866",
+  "start_time": "2025-07-14 06:16:10",
+  "end_time": "2025-07-14 06:24:24",
+  "duration_seconds": 494.030702,
+  "parameters": {
+    "model_id": "google/gemma-3-1b-it",
+    "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov.",
+    "num_tokens": 64,
+    "n": 1024,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 5,
+    "greedy": false,
+    "methods": "tree_xor",
+    "experiment_id": "tree_xor_gs2_p0_r1_20250714_061559_592931693",
+    "output_dir": "tree_xor_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true,
+    "group_size": 2,
+    "beam_width": null
+  },
+  "results": {
+    "config": {
+      "model_id": "google/gemma-3-1b-it",
+      "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov.",
+      "num_tokens": 64,
+      "n": 1024,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 5,
+      "greedy": false,
+      "methods": "tree_xor",
+      "experiment_id": "tree_xor_gs2_p0_r1_20250714_061559_592931693",
+      "output_dir": "tree_xor_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true,
+      "group_size": 2,
+      "beam_width": null
+    },
+    "methods": {
+      "tree_xor": {
+        "threshold": 304.9780618373686,
+        "hamming_weight": 476.0,
+        "detection_result": false,
+        "generation_time": 493.97331857681274,
+        "method": "tree_xor",
+        "group_size": 2,
+        "beam_width": null,
+        "baseline_hamming_weight": 487.0,
+        "mean_bucket_0_prob": 0.4591563045978546,
+        "mean_bucket_1_prob": 0.5408437252044678,
+        "rejection_count": 371,
+        "rejection_rate": 0.3623046875
+      }
+    }
+  },
+  "model_id": "google/gemma-3-1b-it",
+  "device": "cuda",
+  "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov."
+}

@@ -1,0 +1,15 @@
+Experiment ID: watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False
+Timestamp: 20250714_152902_651256
+Parameters: {'model_id': 'google/gemma-3-1b-it', 'prompt': 'Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words.', 'num_tokens': 1024, 'n': 1024, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 20, 'greedy': False, 'methods': 'tree_xor', 'experiment_id': None, 'output_dir': 'tree_xor_experiments', 'fpr': 1e-05, 'prc_t': 3, 'debug': True, 'new': True, 'group_size': 4, 'beam_width': 50}
+Loading model...
+Cleared CUDA cache after model loading.
+Model loaded on cuda
+Prompt: Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words.
+Setting up PRC keys for watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False
+PRC keys set up
+Saved key to tree_xor_experiments/watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_20250714_152902_651256/watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_key.pkl
+Generation started at: 2025-07-14 15:29:06
+
+=== Running Tree XOR Watermarking ===
+Initializing Tree XOR watermarking model...
+Generating watermarked text using Tree XOR method...

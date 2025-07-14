@@ -1,0 +1,66 @@
+{
+  "experiment_id": "watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False",
+  "timestamp": "20250714_085430_323782",
+  "start_time": "2025-07-14 08:54:34",
+  "end_time": "2025-07-14 09:20:18",
+  "duration_seconds": 1544.29762,
+  "parameters": {
+    "model_id": "google/gemma-3-1b-it",
+    "prompt": "Generate the components of a social media website which hosts short form media. Write a detailed design document for the website. Then, provide the full implementation. It should be over 4000 words.",
+    "num_tokens": 1024,
+    "n": 1024,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 20,
+    "greedy": false,
+    "methods": "tree_xor",
+    "experiment_id": null,
+    "output_dir": "tree_xor_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true,
+    "group_size": 2,
+    "beam_width": null
+  },
+  "results": {
+    "config": {
+      "model_id": "google/gemma-3-1b-it",
+      "prompt": "Generate the components of a social media website which hosts short form media. Write a detailed design document for the website. Then, provide the full implementation. It should be over 4000 words.",
+      "num_tokens": 1024,
+      "n": 1024,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 20,
+      "greedy": false,
+      "methods": "tree_xor",
+      "experiment_id": null,
+      "output_dir": "tree_xor_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true,
+      "group_size": 2,
+      "beam_width": null
+    },
+    "methods": {
+      "tree_xor": {
+        "threshold": 304.9780618373686,
+        "hamming_weight": 475.0,
+        "detection_result": false,
+        "generation_time": 1544.2365822792053,
+        "method": "tree_xor",
+        "group_size": 2,
+        "beam_width": null,
+        "baseline_hamming_weight": 495.0,
+        "mean_bucket_0_prob": 0.4881133437156677,
+        "mean_bucket_1_prob": 0.5118865966796875,
+        "rejection_count": 410,
+        "rejection_rate": 0.400390625
+      }
+    }
+  },
+  "model_id": "google/gemma-3-1b-it",
+  "device": "cuda",
+  "prompt": "Generate the components of a social media website which hosts short form media. Write a detailed design document for the website. Then, provide the full implementation. It should be over 4000 words."
+}

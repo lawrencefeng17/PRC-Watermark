@@ -1,0 +1,33 @@
+Experiment ID: watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False
+Timestamp: 20250714_103752_443717
+Parameters: {'model_id': 'google/gemma-3-1b-it', 'prompt': 'Generate the components of a social media website which hosts short form media. Write a detailed design document for the website. Then, provide the full implementation. It should be over 4000 words.', 'num_tokens': 1024, 'n': 1024, 'temperature': 1.0, 'top_p': 1.0, 'top_k': 20, 'greedy': False, 'methods': 'tree_xor', 'experiment_id': None, 'output_dir': 'tree_xor_experiments', 'fpr': 1e-05, 'prc_t': 3, 'debug': True, 'new': True, 'group_size': 2, 'beam_width': None}
+Loading model...
+Cleared CUDA cache after model loading.
+Model loaded on cuda
+Prompt: Generate the components of a social media website which hosts short form media. Write a detailed design document for the website. Then, provide the full implementation. It should be over 4000 words.
+Setting up PRC keys for watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False
+PRC keys set up
+Saved key to tree_xor_experiments/watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_20250714_103752_443717/watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_key.pkl
+Generation started at: 2025-07-14 10:37:56
+
+=== Running Tree XOR Watermarking ===
+Initializing Tree XOR watermarking model...
+Generating watermarked text using Tree XOR method...
+Generation completed in 1535.01 seconds
+Warning: Plot file tree_xor_larger_bucket_distribution.png not found, skipping
+Output text saved to tree_xor_experiments/watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_20250714_103752_443717/text/tree_xor_output.txt
+Detecting watermark...
+Threshold: 304.9780618373686, Hamming weight: 479.0
+Detection result: False
+Existing Hamming weight: 502
+Experiment completed at: 2025-07-14 11:03:31
+Total duration: 0:25:35.068323
+
+=== Experiment Summary ===
+
+TREE_XOR Watermarking:
+  Watermark detected: False
+  Hamming weight: 479.0 (threshold: 304.9780618373686)
+  Rejection rate: 0.3516
+
+Results saved to: tree_xor_experiments/watermark_tree_xor_n_1024_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False_20250714_103752_443717

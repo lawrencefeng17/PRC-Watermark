@@ -1,0 +1,68 @@
+## Social Media Website Design Document: "Spark" - Short-Form Media Hub
+
+**1. Executive Summary**
+
+"Spark" will be a mobile-first social media website designed specifically for short-form video content. It will cater to a growing audience seeking quick, engaging, and easily digestible entertainment. Unlike larger, more complex platforms, Spark will prioritize a streamlined user experience, focusing on a clean interface, robust content discovery, and a supportive community. The core focus will be on fostering genuine connection through shared moments, trends, and creative expression within short-form video segments.  This document outlines the website's design, features, technical architecture, and implementation roadmap.
+
+**2. Goals & Objectives**
+
+* **Primary Goal:** Establish "Spark" as the go-to platform for discovering, sharing, and engaging with short-form video content.
+* **Secondary Goals:**
+    * Attract a diverse user base across various demographics.
+    * Foster a positive and supportive community environment.
+    * Encourage high-quality, original content creation.
+    * Generate revenue through optional premium features (sponsored content, enhanced analytics).
+    * Become a leader in user-friendly short-form video discovery.
+
+
+**3. Target Audience**
+
+* **Primary:** Gen Z (16-25) – digitally native, active on mobile, interested in trends, humor, lifestyle, and DIY content.
+* **Secondary:** Millennials (26-40) – seeking quick entertainment, connecting with friends & influencers, interested in creative trends.
+* **Key Characteristics:** Mobile-first, value authenticity, appreciate visual content, enjoy trend-driven experiences.
+
+
+
+**4. Website Design & User Experience (UX)**
+
+**4.1. Overall Design Philosophy:**
+
+“Spark” will adopt a minimalist and approachable aesthetic. The color palette will utilize warm, inviting tones – primarily muted oranges, deep blues, and creamy whites – to create a feeling of positivity and connection. Typography will be clean, legible, and easily adaptable for different screen sizes.  A focus on visual hierarchy and intuitive navigation will ensure ease of use. 
+
+**4.2. Key Screens & Features:**
+
+* **Homepage:**
+    * **Hero Section:** A rotating carousel showcasing featured content – trending videos, popular creators, and challenges.  Each video will display a compelling thumbnail, title, and snippet of the content.
+    * **Trending Tab:**  A visually clear section highlighting trending videos based on engagement (views, likes, shares, comments).
+    * **For You Page (FYP):** This is the core of the experience. Dynamic, algorithm-driven feed showcasing tailored recommendations based on user activity – viewed videos, liked videos, followed creators, and search history.
+    * **Discover Tab:**  A curated section offering trending challenges, hashtags, and new content categories.
+    * **Creator Spotlight:** A dedicated area featuring notable creators and their content.
+* **Video Feed (FYP):**
+    * **Vertical Video Player:** A responsive and optimized video player – designed for seamless viewing on mobile devices.
+    * **Infinite Scroll:**  Allows users to continuously browse new content.
+    * **Video Controls:**  Standard playback controls (play/pause, volume, full-screen, swipe to navigate).
+    * **Interactive Elements:**  Buttons for liking, commenting, sharing, and reporting.
+    * **Filter & Categorization:** Options for filtering videos by genre, popularity, and trending topics.
+* **Profile Page:**
+    * **User Avatar & Username:** Prominently displayed.
+    * **Bio:**  A brief description of the user, showcasing their interests and content.
+    * **Video Portfolio:**  A dedicated space for displaying the user's uploaded videos.
+    * **Followers & Following:** Indicators of the user’s network.
+    * **Trending Videos:**  A section showcasing videos uploaded by the user.
+* **Search:**
+    * **Keyword Search:** Basic keyword search functionality.
+    * **Hashtag Search:**  Allows users to find videos using specific hashtags.
+    * **Trending Searches:**  Displays the most popular hashtags and keywords.
+* **Create/Upload Video:**
+    * **Simple Video Upload Interface:**  Intuitive tool for recording and uploading videos.
+    * **Preview Functionality:** Allows users to preview their videos before posting.
+    * **Audio and Caption Options:** Easy access to audio and caption input.
+    * **Video Editing Tools (Basic):**  Includes trimming, cropping, adding text overlays, and basic audio adjustments.
+* **Notifications:**  Clear and concise notifications for likes, comments, shares, follows, and mentions.
+
+**4.3. Mobile-First Design:**
+
+The website will be fully responsive and optimized for mobile devices (iOS and Android).  A dedicated mobile app (future iteration) will provide a more seamless experience.
+
+
+**5.

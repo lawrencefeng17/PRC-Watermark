@@ -1,0 +1,66 @@
+{
+  "experiment_id": "watermark_tree_xor_n_256_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False",
+  "timestamp": "20250714_153140_460557",
+  "start_time": "2025-07-14 15:31:44",
+  "end_time": "2025-07-14 15:53:09",
+  "duration_seconds": 1285.223066,
+  "parameters": {
+    "model_id": "google/gemma-3-1b-it",
+    "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words.",
+    "num_tokens": 1024,
+    "n": 256,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 20,
+    "greedy": false,
+    "methods": "tree_xor",
+    "experiment_id": null,
+    "output_dir": "tree_xor_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true,
+    "group_size": 4,
+    "beam_width": 50
+  },
+  "results": {
+    "config": {
+      "model_id": "google/gemma-3-1b-it",
+      "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words.",
+      "num_tokens": 1024,
+      "n": 256,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 20,
+      "greedy": false,
+      "methods": "tree_xor",
+      "experiment_id": null,
+      "output_dir": "tree_xor_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true,
+      "group_size": 4,
+      "beam_width": 50
+    },
+    "methods": {
+      "tree_xor": {
+        "threshold": 45.916478218164336,
+        "hamming_weight": 87.0,
+        "detection_result": false,
+        "generation_time": 1285.1755759716034,
+        "method": "tree_xor",
+        "group_size": 4,
+        "beam_width": 50,
+        "baseline_hamming_weight": 101.0,
+        "mean_bucket_0_prob": 0.5054118633270264,
+        "mean_bucket_1_prob": 0.4945881962776184,
+        "rejection_count": 55,
+        "rejection_rate": 0.21484375
+      }
+    }
+  },
+  "model_id": "google/gemma-3-1b-it",
+  "device": "cuda",
+  "prompt": "Write an extensive, winding summary and analysis of the Brothers Karamazov. It should be over 4000 words."
+}

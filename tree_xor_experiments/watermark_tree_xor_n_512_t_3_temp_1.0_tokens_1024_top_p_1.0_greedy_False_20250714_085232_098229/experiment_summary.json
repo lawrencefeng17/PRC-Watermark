@@ -1,0 +1,66 @@
+{
+  "experiment_id": "watermark_tree_xor_n_512_t_3_temp_1.0_tokens_1024_top_p_1.0_greedy_False",
+  "timestamp": "20250714_085232_098229",
+  "start_time": "2025-07-14 08:52:36",
+  "end_time": "2025-07-14 09:00:36",
+  "duration_seconds": 480.591599,
+  "parameters": {
+    "model_id": "google/gemma-3-1b-it",
+    "prompt": "Write a story about a cat who meets a dog in a post-apocalyptic world. They form a bond and go on an adventure together. It should be over 4000 words.",
+    "num_tokens": 1024,
+    "n": 512,
+    "temperature": 1.0,
+    "top_p": 1.0,
+    "top_k": 20,
+    "greedy": false,
+    "methods": "tree_xor",
+    "experiment_id": null,
+    "output_dir": "tree_xor_experiments",
+    "fpr": 1e-05,
+    "prc_t": 3,
+    "debug": true,
+    "new": true,
+    "group_size": 2,
+    "beam_width": null
+  },
+  "results": {
+    "config": {
+      "model_id": "google/gemma-3-1b-it",
+      "prompt": "Write a story about a cat who meets a dog in a post-apocalyptic world. They form a bond and go on an adventure together. It should be over 4000 words.",
+      "num_tokens": 1024,
+      "n": 512,
+      "temperature": 1.0,
+      "top_p": 1.0,
+      "top_k": 20,
+      "greedy": false,
+      "methods": "tree_xor",
+      "experiment_id": null,
+      "output_dir": "tree_xor_experiments",
+      "fpr": 1e-05,
+      "prc_t": 3,
+      "debug": true,
+      "new": true,
+      "group_size": 2,
+      "beam_width": null
+    },
+    "methods": {
+      "tree_xor": {
+        "threshold": 126.2855905392411,
+        "hamming_weight": 196.0,
+        "detection_result": false,
+        "generation_time": 480.5427973270416,
+        "method": "tree_xor",
+        "group_size": 2,
+        "beam_width": null,
+        "baseline_hamming_weight": 260.0,
+        "mean_bucket_0_prob": 0.5039238333702087,
+        "mean_bucket_1_prob": 0.49607619643211365,
+        "rejection_count": 149,
+        "rejection_rate": 0.291015625
+      }
+    }
+  },
+  "model_id": "google/gemma-3-1b-it",
+  "device": "cuda",
+  "prompt": "Write a story about a cat who meets a dog in a post-apocalyptic world. They form a bond and go on an adventure together. It should be over 4000 words."
+}

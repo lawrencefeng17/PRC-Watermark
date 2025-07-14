@@ -1,0 +1,3 @@
+group_size,experiments,mean_rejection_rate,std_rejection_rate,min_rejection_rate,max_rejection_rate
+2,45,0.33003472222222224,0.04214878325076309,0.259765625,0.4375
+3,1,0.193359375,,0.193359375,0.193359375
