@@ -144,13 +144,8 @@ class TreeXORWatermarkModel:
                 )
                 all_children.append(child)
         
-        # Apply beam search pruning EARLY to control memory
         if self.beam_size is not None:
             all_children = heapq.nlargest(self.beam_size, all_children, key=lambda n: n.logp)
-        else:
-            # If no beam size specified, use a reasonable default to prevent explosion
-            max_nodes = min(len(all_children), 100)  # Reasonable default
-            all_children = heapq.nlargest(max_nodes, all_children, key=lambda n: n.logp)
         
         # Clear intermediate data
         torch.cuda.empty_cache()
@@ -267,17 +262,13 @@ class TreeXORWatermarkModel:
         # Return pushforward_probs for debug tracking
         return new_tokens, next_input, new_past_key_values, pushforward_probs
 
-    def watermarked_generate(self, input_ids, num_codeword_bits, temperature=1.0, top_k=5, beam_width=50):
+    def watermarked_generate(self, input_ids, num_codeword_bits, temperature=1.0, top_k=20, beam_width=None):
         """
         Generate watermarked text using tree XOR watermarking.
         """
         self.temperature = temperature
-        self.top_k = min(top_k, 5)  # Limit top_k to prevent memory explosion
-        self.beam_size = beam_width if beam_width is not None else 50  # Use reasonable default
-        
-        # Memory-efficient parameters
-        if self.top_k > 3 and self.beam_size is None:
-            self.beam_size = 30  # More aggressive beam search for larger top_k
+        self.top_k = top_k
+        self.beam_size = beam_width
         
         output_tokens = []
         xor_distribution_data = []
