@@ -122,3 +122,7 @@ Produced using sweep code `run_all_comparisons.py`
 ![Entropy vs Rejection Rate](/substitution_rate_experiments/entropy_vs_rejection_scatter.png)
 
 The subsituttion rate needed to make this scheme practical is high, around 40%.
+
+## A new embedding algorithm
+
+See `watermarking/tree_xor_watermarking.py` for implementation details of a tunable beam-decoding-like method which allows the substitution rate to drop to near 0% at the cost of 4x the response length.
