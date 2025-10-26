@@ -127,6 +127,12 @@ The subsituttion rate needed to make this scheme practical is high, around 40%.
 
 See `watermarking/tree_xor_watermarking.py` for implementation details of a tunable beam-decoding-like method which allows the substitution rate to drop to near 0% at the cost of 4x the response length.
 
-Here is a visualization to understand how it works!
+Here is a visualization to understand how it works! 
 
 ![tree xor](beam_search_clean(1).png)
+
+We have a desired bit we want to embed into the text. In our steup, each token belongs to one bucket or another; equivalently, each token is assigned a value of either 0 or 1. Naively, if you want to embed a binary string into the output text, you would just select the highest probability token whose bit assignment is what you desire. However, this will change the content of the langauge generated.
+
+We show that our ability to select the desired bit without shifting the distribution of the output text is dependent on the entropy of the original token distribution, and that it is necessary to chain tokens together in a group so as to obtain *more entropy*. The resulting distribution is over strings and is a product distribution. However, given the enormous vocabulary of modern LLMs (e.g. 128,000), we need to approximate this product distribution. 
+
+Here we propose a truncated beam decoding method implemented in `watermarking/tree_xor_watermarking.py`.
