@@ -126,3 +126,7 @@ The subsituttion rate needed to make this scheme practical is high, around 40%.
 ## A new embedding algorithm
 
 See `watermarking/tree_xor_watermarking.py` for implementation details of a tunable beam-decoding-like method which allows the substitution rate to drop to near 0% at the cost of 4x the response length.
+
+Here is a visualization to understand how it works!
+
+![tree xor](beam_search_clean(1).png)
