@@ -123,7 +123,7 @@ Produced using sweep code `run_all_comparisons.py`
 
 The subsituttion rate needed to make this scheme practical is high, around 40%.
 
-## A new embedding algorithm
+## A New Embedding Algorithm: Tree-Based XOR Watermarking for Language Models
 
 See `watermarking/tree_xor_watermarking.py` for implementation details of a tunable beam-decoding-like method which allows the substitution rate to drop to near 0% at the cost of 4x the response length.
 
@@ -131,8 +131,45 @@ Here is a visualization to understand how it works!
 
 ![tree xor](beam_search_clean(1).png)
 
-We have a desired bit we want to embed into the text. In our steup, each token belongs to one bucket or another; equivalently, each token is assigned a value of either 0 or 1. Naively, if you want to embed a binary string into the output text, you would just select the highest probability token whose bit assignment is what you desire. However, this will change the content of the langauge generated.
+### Problem Setup
 
-We show that our ability to select the desired bit without shifting the distribution of the output text is dependent on the entropy of the original token distribution, and that it is necessary to chain tokens together in a group so as to obtain *more entropy*. The resulting distribution is over strings and is a product distribution. However, given the enormous vocabulary of modern LLMs (e.g. 128,000), we need to approximate this product distribution. 
+We aim to embed a binary string into LLM-generated text while preserving the output distribution. Each token in the vocabulary is assigned to one of two buckets (equivalently, a hash value of 0 or 1). To embed a target bit, we must select tokens from the corresponding bucket.
 
-Here we propose a truncated beam decoding method implemented in `watermarking/tree_xor_watermarking.py`.
+### Motivation: The Entropy Bottleneck
+
+A naive approach would select the highest-probability token whose bucket assignment matches the target bit. However, this strategy significantly distorts the language model's output distribution. Our key observation is that **the ability to embed information without distribution shift depends critically on the entropy of the token distribution**. 
+
+For vocabularies with high entropy, individual tokens rarely dominate the probability mass, allowing us to select from the target bucket without substantial distortion. However, when entropy is low (e.g., one token has very high probability), the probability mass in the non-target bucket may be negligible, forcing a distribution-shifting choice.
+
+### Solution: Multi-Token XOR Aggregation
+
+To address this entropy bottleneck, we aggregate over groups of tokens using XOR. Instead of hashing individual tokens, we:
+1. Generate substrings of length `group_size`
+2. Compute the XOR of individual token hashes within each substring
+3. Assign the substring to a bucket based on its XOR value
+
+This aggregation increases entropy: even when individual token distributions have low entropy, the distribution over *substrings* (a product distribution) typically exhibits higher entropy. The XOR operation over multiple positions accumulates randomness, resulting in more balanced bucket probabilities.
+
+### Algorithm: Truncated Beam Search
+
+The distribution over all possible substrings of length `group_size` is a product distribution over the vocabulary, resulting in |V|^`group_size` possible sequences—computationally intractable for modern LLMs with vocabularies of size ~128,000. We therefore propose a truncated beam search approximation:
+
+1. **Tree Expansion**: Starting from the current sequence position, expand a tree by considering the top-k most probable tokens at each depth, up to depth `group_size`.
+
+2. **Beam Pruning**: At each level, retain only the top-w paths by cumulative log-probability (beam search with width w).
+
+3. **XOR Bucketing**: For each leaf node (complete substring of length `group_size`), compute the XOR of the bucket assignments of its constituent tokens. This XOR value determines the substring's bucket (0 or 1).
+
+4. **Bucket Selection**: Using the embedding scheme from Christ & Gunn (2024), select which bucket to sample from based on the target bit while preserving the distribution.
+
+5. **Renormalization and Sampling**: Renormalize the probabilities of all substrings in the selected bucket, then sample one substring from this renormalized distribution.
+
+6. **Output**: Emit the sampled substring's tokens and repeat the process for the next group.
+
+### Approximation Trade-offs
+
+The beam search approximation introduces two parameters:
+- **top-k**: Maximum children per node (restricts branching factor)
+- **beam_size (w)**: Maximum number of paths maintained at each level
+
+These parameters control the computation-accuracy trade-off: larger values yield better approximations of the true product distribution but require more computation. The approximation quality directly impacts watermark detectability, as deviations from the true distribution introduce noise into the embedded signal.
